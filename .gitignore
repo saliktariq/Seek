@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.app-venv/
+downloads/
+.youtube-audio-completed.json
+.youtube-audio-completed.json.tmp
+ffmpeg-paths.txt
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
