@@ -10,8 +10,10 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
+
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
+
     HAS_DND = True
 except ImportError:
     HAS_DND = False
@@ -19,11 +21,13 @@ except ImportError:
     TkinterDnD = None  # type: ignore
 try:
     import darkdetect  # type: ignore
+
     HAS_DARKDETECT = True
 except ImportError:
     HAS_DARKDETECT = False
 try:
     from plyer import notification  # type: ignore
+
     HAS_PLYER = True
 except ImportError:
     HAS_PLYER = False
