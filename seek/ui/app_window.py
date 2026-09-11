@@ -765,6 +765,22 @@ class YouTubeAudioApp:
             sticky="ns",
             padx=(8, 14),
         )
+        self.retry_button = ttk.Button(
+            action_card,
+            text="Retry Failed",
+            style="Primary.TButton",
+            command=self._retry_failed,
+            state="disabled",
+            cursor="hand2",
+        )
+        self.retry_button.grid(
+            row=0,
+            column=2,
+            rowspan=2,
+            sticky="ns",
+            padx=(0, 14),
+        )
+        self.retry_button.grid_remove() # Hidden by default
         self.progress = ttk.Progressbar(
             action_card,
             style="Seek.Horizontal.TProgressbar",
@@ -772,9 +788,9 @@ class YouTubeAudioApp:
             maximum=100,
             value=0,
         )
-        self.progress.grid(row=0, column=2, sticky="ew", pady=(2, 0))
+        self.progress.grid(row=0, column=3, sticky="ew", pady=(2, 0))
         status_row = tk.Frame(action_card, background=COLORS["surface"])
-        status_row.grid(row=1, column=2, sticky="ew", pady=(7, 0))
+        status_row.grid(row=1, column=3, sticky="ew", pady=(7, 0))
         status_row.columnconfigure(0, weight=1)
         self.status_label = tk.Label(
             status_row,
@@ -1420,11 +1436,27 @@ class YouTubeAudioApp:
                 DownloadEvent("job_failed", f"Unexpected error: {exc}")
             )
 
+    def _retry_failed(self) -> None:
+        if self.running:
+            return
+        output_dir = Path(self.output_var.get())
+        if not output_dir.exists():
+            return
+        try:
+            from seek.core.journal import CompletionIndex
+            index = CompletionIndex(output_dir, None)
+            index.clear_failures()
+        except Exception:
+            pass
+        self.retry_button.grid_remove()
+        self._start_download()
+
     def _cancel_download(self) -> None:
         if not self.running:
             return
         self.cancel_event.set()
         self.cancel_button.configure(state="disabled")
+        self.retry_button.configure(state="disabled")
         self.status_var.set("Cancelling…")
         self._set_visual_state("cancelling")
         self._append_log(
@@ -1529,6 +1561,12 @@ class YouTubeAudioApp:
         self._show_progress(100.0 if success else 0.0)
         self.status_var.set(message)
         self._append_log(message)
+        if error or warning:
+            self.retry_button.grid()
+            self.retry_button.configure(state="normal")
+        else:
+            self.retry_button.grid_remove()
+            
         if error:
             self._set_visual_state("failed")
         elif warning:
@@ -1558,6 +1596,11 @@ class YouTubeAudioApp:
         self.cancel_button.configure(
             state="normal" if running else "disabled"
         )
+        self.retry_button.configure(
+            state="disabled" if running else "normal"
+        )
+        if running:
+            self.retry_button.grid_remove()
         self.browse_button.configure(
             state="disabled" if running else "normal"
         )

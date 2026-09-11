@@ -9,6 +9,7 @@ from typing import Callable, Iterable, Any
 from pathlib import Path
 import yt_dlp
 import threading
+import concurrent.futures
 import json
 import re
 
@@ -672,8 +673,11 @@ def download_urls(
     handled_paths: set[str] = set()
     had_errors = False
     total_inputs = len(resolved_urls)
+    state_lock = threading.Lock()
 
-    for index, url in enumerate(resolved_urls, start=1):
+    def _process_item(index: int, url: str) -> None:
+        nonlocal completed_videos, skipped_videos, had_errors
+
         if cancel_event.is_set():
             raise UserCancelledError("Download cancelled.")
 
@@ -693,26 +697,27 @@ def download_urls(
             nonlocal completed_videos, skipped_videos
             nonlocal source_completion_events, source_skip_events
 
-            if event.kind == "video_complete":
-                source_completion_events += 1
-                if event.path is not None:
-                    path_key = os.path.normcase(
-                        str(event.path.resolve(strict=False))
-                    )
-                    if path_key in handled_paths:
-                        return
-                    handled_paths.add(path_key)
-                completed_videos += 1
-            elif event.kind == "video_skipped":
-                source_skip_events += 1
-                if event.path is not None:
-                    path_key = os.path.normcase(
-                        str(event.path.resolve(strict=False))
-                    )
-                    if path_key in handled_paths:
-                        return
-                    handled_paths.add(path_key)
-                skipped_videos += 1
+            with state_lock:
+                if event.kind == "video_complete":
+                    source_completion_events += 1
+                    if event.path is not None:
+                        path_key = os.path.normcase(
+                            str(event.path.resolve(strict=False))
+                        )
+                        if path_key in handled_paths:
+                            return
+                        handled_paths.add(path_key)
+                    completed_videos += 1
+                elif event.kind == "video_skipped":
+                    source_skip_events += 1
+                    if event.path is not None:
+                        path_key = os.path.normcase(
+                            str(event.path.resolve(strict=False))
+                        )
+                        if path_key in handled_paths:
+                            return
+                        handled_paths.add(path_key)
+                    skipped_videos += 1
 
             if event.kind in {"progress", "processing"}:
                 event = DownloadEvent(
@@ -737,32 +742,51 @@ def download_urls(
         except (MissingDependencyError, UserCancelledError):
             raise
         except DownloadFailedError as exc:
-            had_errors = True
+            with state_lock:
+                had_errors = True
             callback(
                 DownloadEvent(
                     "error",
                     f"Input {index} failed: {exc}",
                 )
             )
-            continue
+            return
 
-        completed_videos += max(
-            0,
-            result.completed_videos - source_completion_events,
-        )
-        skipped_videos += max(
-            0,
-            result.skipped_videos - source_skip_events,
-        )
-        had_errors = had_errors or result.had_errors
-        if result.completed_videos == 0 and result.skipped_videos == 0:
-            had_errors = True
-            callback(
-                DownloadEvent(
-                    "warning",
-                    f"{prefix} No complete videos were produced.",
-                )
+        with state_lock:
+            completed_videos += max(
+                0,
+                result.completed_videos - source_completion_events,
             )
+            skipped_videos += max(
+                0,
+                result.skipped_videos - source_skip_events,
+            )
+            had_errors = had_errors or result.had_errors
+            if result.completed_videos == 0 and result.skipped_videos == 0:
+                had_errors = True
+                callback(
+                    DownloadEvent(
+                        "warning",
+                        f"{prefix} No complete videos were produced.",
+                    )
+                )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(_process_item, index, url)
+            for index, url in enumerate(resolved_urls, start=1)
+        ]
+        
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                future.result()
+            except UserCancelledError:
+                # Cancel all running tasks
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
+            except MissingDependencyError:
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
 
     return DownloadResult(
         completed_videos=completed_videos,

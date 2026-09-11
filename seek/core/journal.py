@@ -492,3 +492,11 @@ class CompletionIndex:
         """Return the current failure count for *video_id*."""
         return self._failures.get(str(video_id or "").strip(), 0)
 
+    def clear_failures(self) -> None:
+        """Clear all recorded conversion failures to allow retrying."""
+        with self._lock:
+            if not self._failures:
+                return
+            self._failures.clear()
+            self._save_locked()
+
