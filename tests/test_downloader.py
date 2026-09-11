@@ -14,16 +14,20 @@ from downloader import (
     DependencyReport,
     DownloadEvent,
     DownloadFailedError,
+    _duration_tolerance,
+    _select_best_match,
     build_ydl_options,
     download_url,
     download_urls,
     format_bytes,
     is_single_video_url,
     is_youtube_url,
+    normalize_youtube_url,
     parse_url_entries,
     parse_url_list,
     write_info_file,
 )
+import spotify
 
 
 def _no_op(*_args, **_kwargs):
@@ -963,6 +967,429 @@ class BatchDownloadTests(unittest.TestCase):
                 )
 
         mocked_download.assert_not_called()
+
+
+class SpotifyBridgeTests(unittest.TestCase):
+    def test_expand_input_urls_passes_through_youtube_links(self) -> None:
+        events = []
+        result = downloader.expand_input_urls(
+            ["https://youtu.be/abc123"],
+            events.append,
+            threading.Event(),
+        )
+        self.assertEqual(result, ["https://youtu.be/abc123"])
+        self.assertEqual(events, [])
+
+    def test_expand_input_urls_reports_unsupported_links(self) -> None:
+        events = []
+        result = downloader.expand_input_urls(
+            ["https://example.com/not-supported"],
+            events.append,
+            threading.Event(),
+        )
+        self.assertEqual(result, [])
+        self.assertTrue(any(event.kind == "error" for event in events))
+
+    def test_expand_input_urls_resolves_a_track_with_no_credentials(self) -> None:
+        track = spotify.SpotifyTrack(
+            id="abc",
+            title="Song",
+            artists=("Artist",),
+            album="Album",
+            duration_ms=200000,
+        )
+        events = []
+        with (
+            mock.patch.object(spotify, "load_credentials", return_value=None),
+            mock.patch.object(
+                spotify,
+                "fetch_track_without_credentials",
+                return_value=track,
+            ),
+            mock.patch.object(
+                downloader,
+                "search_youtube_for_track",
+                return_value="https://www.youtube.com/watch?v=match123",
+            ),
+        ):
+            result = downloader.expand_input_urls(
+                ["https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"],
+                events.append,
+                threading.Event(),
+            )
+        self.assertEqual(result, ["https://www.youtube.com/watch?v=match123"])
+
+    def test_expand_input_urls_requires_credentials_for_playlists(self) -> None:
+        events = []
+        with mock.patch.object(spotify, "load_credentials", return_value=None):
+            result = downloader.expand_input_urls(
+                ["https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"],
+                events.append,
+                threading.Event(),
+            )
+        self.assertEqual(result, [])
+        self.assertTrue(
+            any(
+                event.kind == "error" and "Spotify settings" in event.message
+                for event in events
+            )
+        )
+
+    def test_expand_input_urls_resolves_playlist_with_credentials(self) -> None:
+        tracks = [
+            spotify.SpotifyTrack(
+                id="t1",
+                title="Song One",
+                artists=("Artist",),
+                album="Album",
+                duration_ms=100000,
+            ),
+            spotify.SpotifyTrack(
+                id="t2",
+                title="Song Two",
+                artists=("Artist",),
+                album="Album",
+                duration_ms=100000,
+            ),
+        ]
+        events = []
+        with (
+            mock.patch.object(
+                spotify, "load_credentials", return_value=("id", "secret")
+            ),
+            mock.patch.object(spotify.SpotifyClient, "__init__", return_value=None),
+            mock.patch.object(
+                spotify.SpotifyClient, "resolve", return_value=tracks
+            ),
+            mock.patch.object(
+                downloader,
+                "search_youtube_for_track",
+                side_effect=[
+                    "https://www.youtube.com/watch?v=one",
+                    "https://www.youtube.com/watch?v=two",
+                ],
+            ),
+        ):
+            result = downloader.expand_input_urls(
+                ["https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"],
+                events.append,
+                threading.Event(),
+            )
+        self.assertEqual(
+            result,
+            [
+                "https://www.youtube.com/watch?v=one",
+                "https://www.youtube.com/watch?v=two",
+            ],
+        )
+
+    def test_expand_input_urls_warns_when_no_youtube_match_is_found(self) -> None:
+        track = spotify.SpotifyTrack(
+            id="abc",
+            title="Song",
+            artists=("Artist",),
+            album="Album",
+            duration_ms=200000,
+        )
+        events = []
+        with (
+            mock.patch.object(spotify, "load_credentials", return_value=None),
+            mock.patch.object(
+                spotify, "fetch_track_without_credentials", return_value=track
+            ),
+            mock.patch.object(
+                downloader, "search_youtube_for_track", return_value=None
+            ),
+        ):
+            result = downloader.expand_input_urls(
+                ["https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"],
+                events.append,
+                threading.Event(),
+            )
+        self.assertEqual(result, [])
+        self.assertTrue(any(event.kind == "warning" for event in events))
+
+    def test_expand_input_urls_stops_when_already_cancelled(self) -> None:
+        cancel_event = threading.Event()
+        cancel_event.set()
+        with self.assertRaises(downloader.UserCancelledError):
+            downloader.expand_input_urls(
+                ["https://youtu.be/abc123"],
+                lambda _event: None,
+                cancel_event,
+            )
+
+    def test_search_youtube_for_track_prefers_closest_duration_match(self) -> None:
+        fake_yt_dlp = types.ModuleType("yt_dlp")
+
+        class FakeYoutubeDL:
+            def __init__(self, options):
+                self.options = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def extract_info(self, _query, download):
+                return {
+                    "entries": [
+                        {"id": "far", "duration": 60},
+                        {"id": "close", "duration": 121},
+                        {"id": "no-duration"},
+                    ]
+                }
+
+        fake_yt_dlp.YoutubeDL = FakeYoutubeDL
+
+        track = spotify.SpotifyTrack(
+            id="abc",
+            title="Song",
+            artists=("Artist",),
+            album="Album",
+            duration_ms=120000,
+        )
+        with mock.patch.dict(sys.modules, {"yt_dlp": fake_yt_dlp}):
+            match = downloader.search_youtube_for_track(track)
+
+        self.assertEqual(match, "https://www.youtube.com/watch?v=close")
+
+    def test_search_youtube_for_track_falls_back_to_first_result(self) -> None:
+        fake_yt_dlp = types.ModuleType("yt_dlp")
+
+        class FakeYoutubeDL:
+            def __init__(self, options):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def extract_info(self, _query, download):
+                return {"entries": [{"id": "first"}, {"id": "second"}]}
+
+        fake_yt_dlp.YoutubeDL = FakeYoutubeDL
+
+        track = spotify.SpotifyTrack(
+            id="abc", title="Song", artists=(), album="", duration_ms=None
+        )
+        with mock.patch.dict(sys.modules, {"yt_dlp": fake_yt_dlp}):
+            match = downloader.search_youtube_for_track(track)
+
+        self.assertEqual(match, "https://www.youtube.com/watch?v=first")
+
+
+class UrlNormalizationTests(unittest.TestCase):
+    """Tests for normalize_youtube_url (Item #12)."""
+
+    def test_normalizes_youtu_be_short_link(self) -> None:
+        self.assertEqual(
+            normalize_youtube_url("https://youtu.be/abc123"),
+            "https://www.youtube.com/watch?v=abc123",
+        )
+
+    def test_normalizes_www_prefix_variants(self) -> None:
+        for url in (
+            "https://youtube.com/watch?v=abc123",
+            "https://www.youtube.com/watch?v=abc123",
+            "https://m.youtube.com/watch?v=abc123",
+            "https://music.youtube.com/watch?v=abc123",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(
+                    normalize_youtube_url(url),
+                    "https://www.youtube.com/watch?v=abc123",
+                )
+
+    def test_normalizes_shorts_and_embed_urls(self) -> None:
+        self.assertEqual(
+            normalize_youtube_url("https://youtube.com/shorts/abc123"),
+            "https://www.youtube.com/watch?v=abc123",
+        )
+        self.assertEqual(
+            normalize_youtube_url("https://youtube.com/embed/abc123"),
+            "https://www.youtube.com/watch?v=abc123",
+        )
+        self.assertEqual(
+            normalize_youtube_url("https://youtube.com/live/abc123"),
+            "https://www.youtube.com/watch?v=abc123",
+        )
+
+    def test_strips_tracking_params_from_video_url(self) -> None:
+        self.assertEqual(
+            normalize_youtube_url(
+                "https://www.youtube.com/watch?v=abc123&list=PL123&index=5"
+            ),
+            "https://www.youtube.com/watch?v=abc123",
+        )
+
+    def test_normalizes_playlist_host_only(self) -> None:
+        result = normalize_youtube_url(
+            "https://youtube.com/playlist?list=PL123"
+        )
+        self.assertIn("www.youtube.com", result)
+        self.assertIn("playlist", result)
+        self.assertIn("PL123", result)
+
+    def test_normalizes_channel_host_only(self) -> None:
+        result = normalize_youtube_url(
+            "https://youtube.com/@example/videos"
+        )
+        self.assertIn("www.youtube.com", result)
+        self.assertIn("@example", result)
+
+    def test_returns_non_youtube_urls_unchanged(self) -> None:
+        spotify_url = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"
+        self.assertEqual(normalize_youtube_url(spotify_url), spotify_url)
+
+    def test_returns_invalid_urls_unchanged(self) -> None:
+        self.assertEqual(normalize_youtube_url("not a url"), "not a url")
+        self.assertEqual(normalize_youtube_url(""), "")
+
+    def test_deduplicates_variant_urls_to_same_canonical(self) -> None:
+        variants = [
+            "https://youtu.be/abc123",
+            "https://www.youtube.com/watch?v=abc123",
+            "https://youtube.com/watch?v=abc123",
+            "https://m.youtube.com/watch?v=abc123",
+            "https://youtube.com/shorts/abc123",
+            "https://youtube.com/embed/abc123",
+        ]
+        normalized = {normalize_youtube_url(v) for v in variants}
+        self.assertEqual(len(normalized), 1)
+
+
+class DurationToleranceTests(unittest.TestCase):
+    """Tests for proportional duration tolerance (Item #13)."""
+
+    def test_short_track_uses_minimum_tolerance(self) -> None:
+        # 30s track: 10% = 3s, but floor is 5s
+        self.assertAlmostEqual(_duration_tolerance(30.0), 5.0)
+
+    def test_very_short_track_uses_minimum_tolerance(self) -> None:
+        # 10s track: 10% = 1s, but floor is 5s
+        self.assertAlmostEqual(_duration_tolerance(10.0), 5.0)
+
+    def test_normal_track_uses_proportional_tolerance(self) -> None:
+        # 180s (3min) track: 10% = 18s
+        self.assertAlmostEqual(_duration_tolerance(180.0), 18.0)
+
+    def test_long_track_is_capped(self) -> None:
+        # 600s (10min) track: 10% = 60s, but cap is 30s
+        self.assertAlmostEqual(_duration_tolerance(600.0), 30.0)
+
+    def test_very_long_track_is_capped(self) -> None:
+        # 3600s (1hr) track: 10% = 360s, but cap is 30s
+        self.assertAlmostEqual(_duration_tolerance(3600.0), 30.0)
+
+    def test_boundary_at_50s_gives_exact_minimum(self) -> None:
+        # 50s: 10% = 5.0s exactly (at the floor boundary)
+        self.assertAlmostEqual(_duration_tolerance(50.0), 5.0)
+
+    def test_boundary_at_300s_gives_exact_maximum(self) -> None:
+        # 300s: 10% = 30.0s exactly (at the cap boundary)
+        self.assertAlmostEqual(_duration_tolerance(300.0), 30.0)
+
+    def test_select_best_match_accepts_within_tolerance(self) -> None:
+        # 200s track, tolerance = 20s, candidate is 18s off -> accepted
+        entries = [{"id": "a", "duration": 218}]
+        result = _select_best_match(entries, 200_000)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "a")
+
+    def test_select_best_match_rejects_outside_tolerance(self) -> None:
+        # 60s track, tolerance = 6s, candidate is 20s off -> rejected, falls back
+        entries = [
+            {"id": "far", "duration": 80},
+            {"id": "also-far", "duration": 40},
+        ]
+        result = _select_best_match(entries, 60_000)
+        # Both are outside tolerance (20s diff > 6s), so falls back to first
+        self.assertEqual(result["id"], "far")
+
+
+class FailureTrackingTests(unittest.TestCase):
+    """Tests for conversion failure tracking in the journal (Item #9)."""
+
+    def test_record_failure_increments_and_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_root = Path(temporary)
+            video_dir = output_root / "Test [fail1]"
+            video_dir.mkdir()
+            (video_dir / "audio.webm").write_bytes(b"source")
+
+            index = downloader.CompletionIndex(output_root)
+            index.mark_downloaded("fail1", video_dir / "audio.webm")
+
+            self.assertEqual(index.failure_count("fail1"), 0)
+            self.assertEqual(index.record_failure("fail1"), 1)
+            self.assertEqual(index.record_failure("fail1"), 2)
+            self.assertEqual(index.failure_count("fail1"), 2)
+
+            # Verify persistence: failures survive reload
+            reloaded = downloader.CompletionIndex(output_root)
+            self.assertEqual(reloaded.failure_count("fail1"), 2)
+
+    def test_failures_saved_in_journal_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_root = Path(temporary)
+            video_dir = output_root / "Test [fail2]"
+            video_dir.mkdir()
+            (video_dir / "audio.webm").write_bytes(b"source")
+
+            index = downloader.CompletionIndex(output_root)
+            index.mark_downloaded("fail2", video_dir / "audio.webm")
+            index.record_failure("fail2")
+
+            state = json.loads(
+                index.path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                state["videos"]["fail2"]["failures"], 1
+            )
+
+    def test_zero_failures_not_written_to_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_root = Path(temporary)
+            video_dir = output_root / "Test [nofail]"
+            _write_complete_output(video_dir)
+
+            index = downloader.CompletionIndex(output_root)
+            state = json.loads(
+                index.path.read_text(encoding="utf-8")
+            )
+            self.assertNotIn(
+                "failures", state["videos"]["nofail"]
+            )
+
+
+class JournalTmpCleanupTests(unittest.TestCase):
+    """Tests for stale .tmp journal file cleanup on startup (Item #8)."""
+
+    def test_stale_tmp_file_is_removed_on_index_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_root = Path(temporary)
+            stale_tmp = (
+                output_root / ".youtube-audio-completed.json.tmp"
+            )
+            stale_tmp.write_text('{"stale": true}', encoding="utf-8")
+            self.assertTrue(stale_tmp.exists())
+
+            _index = downloader.CompletionIndex(output_root)
+            self.assertFalse(stale_tmp.exists())
+
+    def test_missing_tmp_file_is_harmless(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_root = Path(temporary)
+            # No .tmp file exists — should not raise
+            _index = downloader.CompletionIndex(output_root)
+            stale_tmp = (
+                output_root / ".youtube-audio-completed.json.tmp"
+            )
+            self.assertFalse(stale_tmp.exists())
 
 
 if __name__ == "__main__":

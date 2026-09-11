@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import spotify
 import subprocess
 import sys
 import sysconfig
@@ -69,6 +70,7 @@ _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _COMPLETION_INDEX_FILENAME = ".youtube-audio-completed.json"
 _COMPLETION_INDEX_VERSION = 2
 _REQUIRED_OUTPUT_FILENAMES = ("audio.mp3", "thumbnail.jpg", "info.txt")
+_MAX_CONVERSION_FAILURES = 3
 _VIDEO_FOLDER_ID = re.compile(r"\[([A-Za-z0-9_-]+)\]$")
 _VIDEO_STAGE_RANK = {
     "downloaded": 1,
@@ -172,6 +174,7 @@ class CompletionIndex:
         self._entries: dict[str, str] = {}
         self._candidate_folders: dict[str, str] = {}
         self._stages: dict[str, str] = {}
+        self._failures: dict[str, int] = {}
         self._lock = threading.RLock()
         self._load_and_reconcile()
 
@@ -202,15 +205,20 @@ class CompletionIndex:
             return None
         return relative.as_posix()
 
-    def _records_locked(self) -> dict[str, dict[str, str]]:
-        return {
-            video_id: {
+    def _records_locked(self) -> dict[str, dict[str, str | int]]:
+        records: dict[str, dict[str, str | int]] = {}
+        for video_id, stage in sorted(self._stages.items()):
+            if video_id not in self._candidate_folders:
+                continue
+            record: dict[str, str | int] = {
                 "folder": self._candidate_folders[video_id],
                 "phase": stage,
             }
-            for video_id, stage in sorted(self._stages.items())
-            if video_id in self._candidate_folders
-        }
+            failures = self._failures.get(video_id, 0)
+            if failures > 0:
+                record["failures"] = failures
+            records[video_id] = record
+        return records
 
     def _set_stage_locked(
         self,
@@ -242,6 +250,12 @@ class CompletionIndex:
 
     def _load_and_reconcile(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Clean up stale temporary files from interrupted saves.
+        stale_tmp = self.path.with_name(f"{self.path.name}.tmp")
+        try:
+            stale_tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         index_existed = self.path.exists()
         index_was_invalid = False
         needs_upgrade = False
@@ -297,6 +311,13 @@ class CompletionIndex:
                         self._stages[video_id] = stage
                         if stage == "complete":
                             self._entries[video_id] = folder
+                        failures = (
+                            entry.get("failures", 0)
+                            if isinstance(entry, dict)
+                            else 0
+                        )
+                        if isinstance(failures, int) and failures > 0:
+                            self._failures[video_id] = failures
                     else:
                         needs_upgrade = True
             else:
@@ -555,6 +576,21 @@ class CompletionIndex:
 
         return self._mark_stage(video_id, video_dir, "complete")
 
+    def record_failure(self, video_id: str) -> int:
+        """Increment and return the failure count for *video_id*."""
+        normalized_id = str(video_id or "").strip()
+        if not normalized_id:
+            return 0
+        with self._lock:
+            count = self._failures.get(normalized_id, 0) + 1
+            self._failures[normalized_id] = count
+            self._save_locked()
+        return count
+
+    def failure_count(self, video_id: str) -> int:
+        """Return the current failure count for *video_id*."""
+        return self._failures.get(str(video_id or "").strip(), 0)
+
 
 def is_youtube_url(value: str) -> bool:
     """Return True for an HTTP(S) URL hosted by YouTube."""
@@ -596,6 +632,57 @@ def is_single_video_url(value: str) -> bool:
         or path.startswith("/live/")
         or path.startswith("/embed/")
     )
+
+
+def normalize_youtube_url(url: str) -> str:
+    """Return a canonical form of a YouTube URL for deduplication.
+
+    Video URLs are normalized to ``https://www.youtube.com/watch?v=VIDEO_ID``.
+    Playlist and channel URLs keep their original path but get a normalized
+    host.  Non-YouTube URLs are returned unchanged.
+    """
+
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        return url
+
+    host = (parsed.hostname or "").rstrip(".").lower()
+    is_yt = (
+        host == "youtu.be"
+        or host.endswith(".youtu.be")
+        or host == "youtube.com"
+        or host.endswith(".youtube.com")
+        or host == "youtube-nocookie.com"
+        or host.endswith(".youtube-nocookie.com")
+    )
+    if not is_yt:
+        return url
+
+    # Extract video ID from the various YouTube URL formats.
+    video_id: str | None = None
+    path = parsed.path.rstrip("/")
+
+    if host == "youtu.be" or host.endswith(".youtu.be"):
+        # youtu.be/VIDEO_ID
+        video_id = path.lstrip("/").split("/")[0] or None
+    elif path == "/watch":
+        ids = parse_qs(parsed.query).get("v", [])
+        video_id = ids[0] if ids else None
+    elif path.startswith(("/shorts/", "/live/", "/embed/")):
+        # /shorts/VIDEO_ID, /live/VIDEO_ID, /embed/VIDEO_ID
+        parts = path.split("/")
+        video_id = parts[2] if len(parts) > 2 else None
+
+    if video_id:
+        return f"https://www.youtube.com/watch?v={video_id}"
+
+    # Playlist, channel, or other non-video URL — normalize the host only.
+    normalized = parsed._replace(
+        scheme="https",
+        netloc="www.youtube.com",
+    )
+    return normalized.geturl()
 
 
 def parse_url_entries(value: str) -> list[tuple[int, str]]:
@@ -744,6 +831,7 @@ def build_ydl_options(
         "fragment_retries": 10,
         "extractor_retries": 3,
         "socket_timeout": 30,
+        "noprogress_timeout": 120,
         "quiet": True,
         "no_warnings": False,
         "noprogress": True,
@@ -769,6 +857,80 @@ def build_ydl_options(
         options["js_runtimes"] = javascript_runtimes
 
     return options
+
+
+_DURATION_TOLERANCE_MIN_S = 5.0
+_DURATION_TOLERANCE_MAX_S = 30.0
+_DURATION_TOLERANCE_RATIO = 0.10
+
+
+def _duration_tolerance(target_seconds: float) -> float:
+    """Return an adaptive tolerance: 10% of track length, clamped to [5, 30]s."""
+    return max(
+        _DURATION_TOLERANCE_MIN_S,
+        min(_DURATION_TOLERANCE_MAX_S, target_seconds * _DURATION_TOLERANCE_RATIO),
+    )
+
+
+def _select_best_match(
+    entries: list[dict[str, Any]],
+    target_duration_ms: int | None,
+) -> dict[str, Any] | None:
+    """Pick the search result whose duration is closest to the target."""
+
+    if not entries:
+        return None
+    if not target_duration_ms:
+        return entries[0]
+
+    target_seconds = target_duration_ms / 1000.0
+    best: dict[str, Any] | None = None
+    best_diff: float | None = None
+    for entry in entries:
+        duration = entry.get("duration")
+        if duration is None:
+            continue
+        diff = abs(float(duration) - target_seconds)
+        tolerance = _duration_tolerance(target_seconds)
+        if diff <= tolerance and (best_diff is None or diff < best_diff):
+            best, best_diff = entry, diff
+    return best or entries[0]
+
+
+def search_youtube_for_track(
+    track: spotify.SpotifyTrack,
+    *,
+    javascript_runtimes: dict[str, dict[str, str]] | None = None,
+    result_count: int = 5,
+) -> str | None:
+    """Return the URL of the best available YouTube match for a Spotify track."""
+
+    import yt_dlp
+
+    options: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "skip_download": True,
+        "extract_flat": "in_playlist",
+        "socket_timeout": 30,
+    }
+    if javascript_runtimes:
+        options["js_runtimes"] = javascript_runtimes
+
+    query = f"ytsearch{result_count}:{track.display_name} audio"
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(query, download=False)
+
+    entries = [entry for entry in (info or {}).get("entries") or [] if entry]
+    best = _select_best_match(entries, track.duration_ms)
+    if best is None:
+        return None
+
+    video_id = best.get("id")
+    if video_id:
+        return f"https://www.youtube.com/watch?v={video_id}"
+    return best.get("url")
 
 
 def write_info_file(info: dict[str, Any], video_dir: Path) -> Path:
@@ -999,6 +1161,24 @@ def download_url(
                 )
             return "Already downloaded and fully processed in this destination"
 
+        if (
+            stage is not None
+            and completion_index.failure_count(video_id)
+            >= _MAX_CONVERSION_FAILURES
+        ):
+            title = str(info.get("title") or video_id)
+            callback(
+                DownloadEvent(
+                    "error",
+                    f'Skipping "{title}" — conversion has failed '
+                    f"{_MAX_CONVERSION_FAILURES} times; remove its folder "
+                    "to retry.",
+                )
+            )
+            return (
+                f"Conversion failed {_MAX_CONVERSION_FAILURES} times"
+            )
+
         if stage in {"downloaded", "converted"} and video_id not in resumed_ids:
             resumed_ids.add(video_id)
             title = str(info.get("title") or video_id)
@@ -1059,6 +1239,7 @@ def download_url(
             ]
             if missing_files:
                 incomplete_ids.add(video_id)
+                completion_index.record_failure(video_id)
                 title = str(info.get("title") or "Untitled")
                 callback(
                     DownloadEvent(
@@ -1140,6 +1321,131 @@ def download_url(
     )
 
 
+def expand_input_urls(
+    urls: Iterable[str],
+    callback: EventCallback,
+    cancel_event: threading.Event,
+    *,
+    javascript_runtimes: dict[str, dict[str, str]] | None = None,
+) -> list[str]:
+    """Resolve Spotify links to matching YouTube URLs; pass YouTube URLs through."""
+
+    resolved: list[str] = []
+    seen: set[str] = set()
+    spotify_client: spotify.SpotifyClient | None = None
+
+    def add(url: str) -> None:
+        if url not in seen:
+            seen.add(url)
+            resolved.append(url)
+
+    def resolve_spotify_tracks(
+        kind: str,
+        spotify_id: str,
+        url: str,
+    ) -> list[spotify.SpotifyTrack]:
+        nonlocal spotify_client
+
+        credentials = spotify.load_credentials()
+        if credentials is None:
+            if kind == "track":
+                return [spotify.fetch_track_without_credentials(spotify_id, url)]
+            raise spotify.SpotifyAuthError(
+                f"Downloading a Spotify {kind} needs a free Client ID/Secret "
+                "— add one from File → Spotify settings…"
+            )
+
+        if spotify_client is None:
+            spotify_client = spotify.SpotifyClient(*credentials)
+        return spotify_client.resolve(kind, spotify_id)
+
+    for url in urls:
+        if cancel_event.is_set():
+            raise UserCancelledError("Download cancelled.")
+
+        if is_youtube_url(url):
+            add(url)
+            continue
+
+        parsed = spotify.parse_spotify_url(url)
+        if parsed is None:
+            callback(
+                DownloadEvent(
+                    "error",
+                    f"Not a supported YouTube or Spotify link: {url}",
+                )
+            )
+            continue
+        kind, spotify_id = parsed
+
+        try:
+            callback(DownloadEvent("processing", f"Reading Spotify {kind}…"))
+            tracks = resolve_spotify_tracks(kind, spotify_id, url)
+        except spotify.SpotifyError as exc:
+            callback(DownloadEvent("error", f"Spotify: {exc}"))
+            continue
+
+        if not tracks:
+            callback(
+                DownloadEvent("warning", f"No tracks found on Spotify for {url}")
+            )
+            continue
+
+        callback(
+            DownloadEvent(
+                "log",
+                f"Found {len(tracks)} "
+                f"{'track' if len(tracks) == 1 else 'tracks'} on Spotify; "
+                "matching each to YouTube…",
+            )
+        )
+        for index, track in enumerate(tracks, start=1):
+            if cancel_event.is_set():
+                raise UserCancelledError("Download cancelled.")
+
+            prefix = f"[{index}/{len(tracks)}]"
+            callback(
+                DownloadEvent(
+                    "processing",
+                    f'{prefix} Matching "{track.display_name}" on YouTube…',
+                )
+            )
+            try:
+                match = search_youtube_for_track(
+                    track,
+                    javascript_runtimes=javascript_runtimes,
+                )
+            except Exception as exc:
+                callback(
+                    DownloadEvent(
+                        "warning",
+                        f'{prefix} Could not search YouTube for '
+                        f'"{track.display_name}": {exc}',
+                    )
+                )
+                continue
+
+            if match is None:
+                callback(
+                    DownloadEvent(
+                        "warning",
+                        f'{prefix} No YouTube match found for '
+                        f'"{track.display_name}"',
+                    )
+                )
+                continue
+
+            callback(
+                DownloadEvent(
+                    "log",
+                    f'{prefix} Matched "{track.display_name}" to {match}',
+                )
+            )
+            add(match)
+
+    return resolved
+
+
 def download_urls(
     urls: Iterable[str],
     output_dir: Path,
@@ -1156,6 +1462,13 @@ def download_urls(
     dependency_report = check_dependencies(javascript_runtimes)
     _raise_for_missing_dependencies(dependency_report)
 
+    resolved_urls = expand_input_urls(
+        unique_urls,
+        callback,
+        cancel_event,
+        javascript_runtimes=javascript_runtimes,
+    )
+
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     completion_index = CompletionIndex(output_dir, callback)
@@ -1164,9 +1477,9 @@ def download_urls(
     skipped_videos = 0
     handled_paths: set[str] = set()
     had_errors = False
-    total_inputs = len(unique_urls)
+    total_inputs = len(resolved_urls)
 
-    for index, url in enumerate(unique_urls, start=1):
+    for index, url in enumerate(resolved_urls, start=1):
         if cancel_event.is_set():
             raise UserCancelledError("Download cancelled.")
 

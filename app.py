@@ -18,12 +18,14 @@ from downloader import (
     UserCancelledError,
     download_urls,
     is_youtube_url,
+    normalize_youtube_url,
     parse_url_entries,
 )
+import spotify
 
 
 APP_TITLE = "SEEK"
-WINDOW_TITLE = "SEEK — YouTube Audio Downloader"
+WINDOW_TITLE = "SEEK — YouTube & Spotify Audio Downloader"
 APP_VERSION = "1.0"
 
 COLORS = {
@@ -263,6 +265,11 @@ class YouTubeAudioApp:
             command=self._open_output,
         )
         self.file_menu.add_separator()
+        self.file_menu.add_command(
+            label="Spotify settings…",
+            command=self._open_spotify_settings,
+        )
+        self.file_menu.add_separator()
         self.file_menu.add_command(label="Exit SEEK", command=self._on_close)
         self.menu_bar.add_cascade(label="File", menu=self.file_menu)
 
@@ -434,8 +441,8 @@ class YouTubeAudioApp:
         tk.Label(
             tip,
             text=(
-                "Paste channels, playlists, or individual videos. "
-                "SEEK remembers completed work."
+                "Paste YouTube channels/playlists or Spotify tracks/"
+                "playlists. SEEK remembers completed work."
             ),
             background=COLORS["nav_soft"],
             foreground="#CAD3E7",
@@ -480,7 +487,7 @@ class YouTubeAudioApp:
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             topbar,
-            text="Turn YouTube links into a tidy, offline audio library.",
+            text="Turn YouTube and Spotify links into a tidy, offline audio library.",
             background=COLORS["app_bg"],
             foreground=COLORS["muted"],
             font=("Segoe UI", 9),
@@ -522,7 +529,7 @@ class YouTubeAudioApp:
         hero_copy.grid(row=0, column=0, sticky="w")
         tk.Label(
             hero_copy,
-            text="YOUTUBE  →  MP3",
+            text="YOUTUBE + SPOTIFY  →  MP3",
             background=COLORS["primary"],
             foreground="#FFFFFF",
             padx=8,
@@ -598,7 +605,7 @@ class YouTubeAudioApp:
         heading.grid(row=0, column=0, sticky="w")
         tk.Label(
             heading,
-            text="Add YouTube links",
+            text="Add YouTube or Spotify links",
             background=COLORS["surface"],
             foreground=COLORS["ink"],
             font=("Segoe UI", 10, "bold"),
@@ -1047,7 +1054,10 @@ class YouTubeAudioApp:
         if not self.url_input.edit_modified():
             return
         entries = parse_url_entries(self.url_input.get("1.0", "end-1c"))
-        unique_count = len(dict.fromkeys(url for _line, url in entries))
+        unique_count = len(dict.fromkeys(
+            normalize_youtube_url(url) if is_youtube_url(url) else url
+            for _line, url in entries
+        ))
         self.link_count_var.set(str(unique_count))
         self.link_badge_var.set(
             f"{unique_count} {'link' if unique_count == 1 else 'links'}"
@@ -1121,7 +1131,8 @@ class YouTubeAudioApp:
         messagebox.showinfo(
             APP_TITLE,
             "SEEK\n\n"
-            "A colorful, resumable YouTube audio workspace.\n\n"
+            "A colorful, resumable audio workspace for YouTube and "
+            "Spotify links.\n\n"
             f"Version {APP_VERSION}",
         )
 
@@ -1152,19 +1163,135 @@ class YouTubeAudioApp:
         if selected:
             self.output_var.set(selected)
 
+    def _open_spotify_settings(self) -> None:
+        if self.running:
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Spotify settings")
+        dialog.configure(background=COLORS["surface"])
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+
+        existing_id, existing_secret = spotify.load_credentials() or ("", "")
+        client_id_var = tk.StringVar(value=existing_id)
+        client_secret_var = tk.StringVar(value=existing_secret)
+
+        tk.Label(
+            dialog,
+            text=(
+                "A single Spotify track link works with no setup.\n"
+                "Albums and playlists need a free Client ID and Client "
+                "Secret from\ndeveloper.spotify.com/dashboard — pasted "
+                "below."
+            ),
+            background=COLORS["surface"],
+            foreground=COLORS["muted"],
+            justify="left",
+            font=("Segoe UI", 8),
+        ).grid(row=0, column=0, sticky="w", padx=18, pady=(18, 4))
+
+        tk.Label(
+            dialog,
+            text="Client ID",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            font=("Segoe UI", 9, "bold"),
+        ).grid(row=1, column=0, sticky="w", padx=18, pady=(10, 2))
+        client_id_entry = ttk.Entry(
+            dialog,
+            textvariable=client_id_var,
+            width=44,
+            style="Modern.TEntry",
+        )
+        client_id_entry.grid(row=2, column=0, sticky="ew", padx=18)
+
+        tk.Label(
+            dialog,
+            text="Client Secret",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            font=("Segoe UI", 9, "bold"),
+        ).grid(row=3, column=0, sticky="w", padx=18, pady=(10, 2))
+        client_secret_entry = ttk.Entry(
+            dialog,
+            textvariable=client_secret_var,
+            width=44,
+            show="•",
+            style="Modern.TEntry",
+        )
+        client_secret_entry.grid(row=4, column=0, sticky="ew", padx=18)
+
+        button_row = tk.Frame(dialog, background=COLORS["surface"])
+        button_row.grid(row=5, column=0, sticky="e", padx=18, pady=18)
+
+        def save(_event: tk.Event | None = None) -> None:
+            client_id = client_id_var.get().strip()
+            client_secret = client_secret_var.get().strip()
+            if not client_id or not client_secret:
+                messagebox.showerror(
+                    APP_TITLE,
+                    "Both the Client ID and Client Secret are required.",
+                    parent=dialog,
+                )
+                return
+            try:
+                spotify.save_credentials(client_id, client_secret)
+            except OSError as exc:
+                messagebox.showerror(
+                    APP_TITLE,
+                    f"Could not save Spotify settings:\n{exc}",
+                    parent=dialog,
+                )
+                return
+            dialog.destroy()
+
+        ttk.Button(
+            button_row,
+            text="Cancel",
+            style="Secondary.TButton",
+            command=dialog.destroy,
+            cursor="hand2",
+        ).pack(side="right")
+        ttk.Button(
+            button_row,
+            text="Save",
+            style="Primary.TButton",
+            command=save,
+            cursor="hand2",
+        ).pack(side="right", padx=(0, 8))
+
+        dialog.bind("<Return>", save)
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        client_id_entry.focus_set()
+
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (
+            (self.root.winfo_width() - dialog.winfo_width()) // 2
+        )
+        y = self.root.winfo_rooty() + (
+            (self.root.winfo_height() - dialog.winfo_height()) // 2
+        )
+        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+        dialog.grab_set()
+        dialog.wait_window()
+
     def _start_download(self) -> None:
         if self.running:
             return
 
         entries = parse_url_entries(self.url_input.get("1.0", "end-1c"))
-        urls = list(dict.fromkeys(url for _line_number, url in entries))
+        urls = list(dict.fromkeys(
+            normalize_youtube_url(url) if is_youtube_url(url) else url
+            for _line_number, url in entries
+        ))
         duplicate_count = len(entries) - len(urls)
         output_text = self.output_var.get().strip()
 
         if not entries:
             messagebox.showerror(
                 APP_TITLE,
-                "Paste at least one YouTube link first.",
+                "Paste at least one YouTube or Spotify link first.",
             )
             self.url_input.focus_set()
             return
@@ -1172,7 +1299,7 @@ class YouTubeAudioApp:
         invalid_entries = [
             (line_number, url)
             for line_number, url in entries
-            if not is_youtube_url(url)
+            if not is_youtube_url(url) and not spotify.is_spotify_url(url)
         ]
         if invalid_entries:
             preview = "\n".join(
@@ -1183,7 +1310,7 @@ class YouTubeAudioApp:
                 preview += f"\n…and {len(invalid_entries) - 3} more"
             messagebox.showerror(
                 APP_TITLE,
-                f"These are not valid YouTube links:\n\n{preview}",
+                f"These are not valid YouTube or Spotify links:\n\n{preview}",
             )
             self.url_input.focus_set()
             return
@@ -1458,6 +1585,10 @@ class YouTubeAudioApp:
         )
         self.file_menu.entryconfigure(
             "Choose destination…",
+            state="disabled" if running else "normal",
+        )
+        self.file_menu.entryconfigure(
+            "Spotify settings…",
             state="disabled" if running else "normal",
         )
         for label in ("Paste links", "Select all links", "Clear links"):
