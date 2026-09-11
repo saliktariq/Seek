@@ -2,7 +2,8 @@ import tkinter as tk
 import sys
 import logging
 from seek.ui.app_window import YouTubeAudioApp
-from seek.ui.theme import COLORS
+from seek.ui.theme import COLORS  # type: ignore
+
 
 def main() -> None:
     logging.basicConfig(
@@ -15,9 +16,9 @@ def main() -> None:
     root.geometry("900x700")
     root.minsize(800, 600)
     root.configure(background=COLORS["bg"])
-    
+
     app = YouTubeAudioApp(root)
-    
+
     def on_closing() -> None:
         if app.running:
             app._cancel_download()
@@ -25,9 +26,10 @@ def main() -> None:
         else:
             root.destroy()
             sys.exit(0)
-            
+
     root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()

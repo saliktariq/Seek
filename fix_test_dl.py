@@ -23,21 +23,34 @@ from seek.models.links import (
     parse_url_entries, parse_url_list
 )
 from seek.core.journal import CompletionIndex""",
-    code, flags=re.DOTALL
+    code,
+    flags=re.DOTALL,
 )
 
 # Replace usage of downloader.X
 code = code.replace("downloader.CompletionIndex", "CompletionIndex")
 code = code.replace("downloader.check_dependencies", "system.check_dependencies")
-code = code.replace("downloader.detect_javascript_runtimes", "system.detect_javascript_runtimes")
+code = code.replace(
+    "downloader.detect_javascript_runtimes", "system.detect_javascript_runtimes"
+)
 code = code.replace("downloader.expand_input_urls", "engine.expand_input_urls")
-code = code.replace("downloader.search_youtube_for_track", "engine.search_youtube_for_track")
+code = code.replace(
+    "downloader.search_youtube_for_track", "engine.search_youtube_for_track"
+)
 code = code.replace("downloader.UserCancelledError", "UserCancelledError")
 
 # Also replace patch points
-code = code.replace("\"downloader\"", "\"seek.utils.system\"") # For check_dependencies, etc.
-code = code.replace("mock.patch.object(\n                    downloader,\n                    \"check_dependencies\"", "mock.patch.object(\n                    system,\n                    \"check_dependencies\"")
-code = code.replace("mock.patch.object(\n                    downloader,\n                    \"detect_javascript_runtimes\"", "mock.patch.object(\n                    system,\n                    \"detect_javascript_runtimes\"")
+code = code.replace(
+    '"downloader"', '"seek.utils.system"'
+)  # For check_dependencies, etc.
+code = code.replace(
+    'mock.patch.object(\n                    downloader,\n                    "check_dependencies"',
+    'mock.patch.object(\n                    system,\n                    "check_dependencies"',
+)
+code = code.replace(
+    'mock.patch.object(\n                    downloader,\n                    "detect_javascript_runtimes"',
+    'mock.patch.object(\n                    system,\n                    "detect_javascript_runtimes"',
+)
 
 with open("tests/test_downloader.py", "w") as f:
     f.write(code)

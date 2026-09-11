@@ -10,12 +10,14 @@ from pathlib import Path
 
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class DependencyReport:
     """Result of checking the local runtime before a download."""
 
     missing_required: tuple[str, ...]
     javascript_runtime: str | None
+
 
 _JAVASCRIPT_RUNTIMES = (
     (
@@ -53,9 +55,9 @@ _JAVASCRIPT_RUNTIMES = (
 )
 
 _RUNTIME_DISPLAY_NAMES = {
-    key: display_name
-    for key, display_name, *_remaining in _JAVASCRIPT_RUNTIMES
+    key: display_name for key, display_name, *_remaining in _JAVASCRIPT_RUNTIMES
 }
+
 
 def check_dependencies(
     javascript_runtimes: dict[str, dict[str, str]] | None = None,
@@ -67,7 +69,7 @@ def check_dependencies(
     if sys.version_info < (3, 10):
         missing.append("Python 3.10 or newer")
     if importlib.util.find_spec("yt_dlp") is None:
-        missing.append('yt-dlp (run: python -m pip install -r requirements.txt)')
+        missing.append("yt-dlp (run: python -m pip install -r requirements.txt)")
     if shutil.which("ffmpeg") is None:
         missing.append("FFmpeg executable")
     if shutil.which("ffprobe") is None:
@@ -84,6 +86,7 @@ def check_dependencies(
     )
     return DependencyReport(tuple(missing), runtime)
 
+
 def _find_executable(name: str) -> str | None:
     path = shutil.which(name)
     if path:
@@ -95,16 +98,16 @@ def _find_executable(name: str) -> str | None:
         return str(scripts_candidate)
     return None
 
+
 def _version_tuple(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.findall(r"\d+", value))
+
 
 def detect_javascript_runtimes() -> dict[str, dict[str, str]]:
     """Return yt-dlp settings for installed, supported runtime versions."""
 
     runtimes: dict[str, dict[str, str]] = {}
-    creation_flags = (
-        subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    )
+    creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0  # type: ignore
 
     for (
         key,
@@ -141,6 +144,7 @@ def detect_javascript_runtimes() -> dict[str, dict[str, str]]:
             runtimes[key] = {"path": path}
     return runtimes
 
+
 def format_bytes(value: int | float | None) -> str:
     """Format a byte count for display."""
 
@@ -156,4 +160,3 @@ def format_bytes(value: int | float | None) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024.0
     return ""
-

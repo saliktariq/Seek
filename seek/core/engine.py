@@ -7,8 +7,9 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Iterable, Any
 from pathlib import Path
-import yt_dlp
+import yt_dlp  # type: ignore
 import threading
+import time
 import concurrent.futures
 import json
 import re
@@ -17,9 +18,14 @@ import seek.core.spotify as spotify
 from seek.core.journal import CompletionIndex, _REQUIRED_OUTPUT_FILENAMES
 from seek.models.config import DownloadConfig
 from seek.models.links import is_youtube_url, normalize_youtube_url, is_single_video_url
-from seek.utils.system import check_dependencies, detect_javascript_runtimes, DependencyReport
+from seek.utils.system import (
+    check_dependencies,
+    detect_javascript_runtimes,
+    DependencyReport,
+)
 
 EventCallback = Callable[["DownloadEvent"], None]
+
 
 @dataclass(frozen=True)
 class DownloadEvent:
@@ -30,6 +36,7 @@ class DownloadEvent:
     percent: float | None = None
     path: Path | None = None
 
+
 @dataclass(frozen=True)
 class DownloadResult:
     """Summary returned after yt-dlp has finished."""
@@ -38,19 +45,25 @@ class DownloadResult:
     had_errors: bool
     skipped_videos: int = 0
 
+
 class DownloaderError(Exception):
     """Base exception for all downloader errors."""
+
 
 class MissingDependencyError(DownloaderError):
     """Raised when Python, yt-dlp, FFmpeg, or FFprobe is unavailable."""
 
+
 class DownloadFailedError(DownloaderError):
     """Raised when yt-dlp cannot complete the requested job."""
+
 
 class UserCancelledError(DownloaderError):
     """Raised after the user requests cancellation."""
 
+
 _MAX_CONVERSION_FAILURES = 3
+
 
 def build_ydl_options(
     url: str,
@@ -125,6 +138,7 @@ def build_ydl_options(
 
     return options
 
+
 _SPOTIFY_TO_YOUTUBE_CACHE: dict[str, str] = {}
 
 _DURATION_TOLERANCE_MIN_S = 5.0
@@ -133,12 +147,14 @@ _DURATION_TOLERANCE_MAX_S = 30.0
 
 _DURATION_TOLERANCE_RATIO = 0.10
 
+
 def _duration_tolerance(target_seconds: float) -> float:
     """Return an adaptive tolerance: 10% of track length, clamped to [5, 30]s."""
     return max(
         _DURATION_TOLERANCE_MIN_S,
         min(_DURATION_TOLERANCE_MAX_S, target_seconds * _DURATION_TOLERANCE_RATIO),
     )
+
 
 def _select_best_match(
     entries: list[dict[str, Any]],
@@ -163,6 +179,7 @@ def _select_best_match(
         if diff <= tolerance and (best_diff is None or diff < best_diff):
             best, best_diff = entry, diff
     return best or entries[0]
+
 
 def search_youtube_for_track(
     track: spotify.SpotifyTrack,
@@ -201,10 +218,11 @@ def search_youtube_for_track(
     if video_id:
         url = f"https://www.youtube.com/watch?v={video_id}"
     else:
-        url = best.get("url")
+        url = best.get("url")  # type: ignore
     if url and track.id:
         _SPOTIFY_TO_YOUTUBE_CACHE[track.id] = url
     return url
+
 
 def _progress_event(data: dict[str, Any]) -> DownloadEvent:
     info = data.get("info_dict") or {}
@@ -224,6 +242,7 @@ def _progress_event(data: dict[str, Any]) -> DownloadEvent:
         message += f" ({speed_str}, ETA {eta_str})"
 
     return DownloadEvent("progress", message, percent)
+
 
 def write_info_file(info: dict[str, Any], video_dir: Path) -> Path:
     """Atomically write the title and description for one downloaded video."""
@@ -255,6 +274,7 @@ def write_info_file(info: dict[str, Any], video_dir: Path) -> Path:
 
     return destination
 
+
 def download_url(
     url: str,
     output_dir: Path,
@@ -279,7 +299,7 @@ def download_url(
 
     try:
         import yt_dlp
-        from yt_dlp.utils import DownloadCancelled
+        from yt_dlp.utils import DownloadCancelled  # type: ignore
     except ImportError as exc:
         raise MissingDependencyError(
             'yt-dlp is not installed. Run "python -m pip install -r requirements.txt".'
@@ -362,8 +382,7 @@ def download_url(
 
         if (
             stage is not None
-            and completion_index.failure_count(video_id)
-            >= _MAX_CONVERSION_FAILURES
+            and completion_index.failure_count(video_id) >= _MAX_CONVERSION_FAILURES
         ):
             title = str(info.get("title") or video_id)
             callback(
@@ -374,9 +393,7 @@ def download_url(
                     "to retry.",
                 )
             )
-            return (
-                f"Conversion failed {_MAX_CONVERSION_FAILURES} times"
-            )
+            return f"Conversion failed {_MAX_CONVERSION_FAILURES} times"
 
         if stage in {"downloaded", "converted"} and video_id not in resumed_ids:
             resumed_ids.add(video_id)
@@ -520,6 +537,7 @@ def download_url(
         skipped_videos=len(skipped_ids),
     )
 
+
 def expand_input_urls(
     urls: Iterable[str],
     callback: EventCallback,
@@ -585,9 +603,7 @@ def expand_input_urls(
             continue
 
         if not tracks:
-            callback(
-                DownloadEvent("warning", f"No tracks found on Spotify for {url}")
-            )
+            callback(DownloadEvent("warning", f"No tracks found on Spotify for {url}"))
             continue
 
         callback(
@@ -598,30 +614,52 @@ def expand_input_urls(
                 "matching each to YouTube…",
             )
         )
+
         def process_track(index: int, track: spotify.SpotifyTrack) -> str | None:
             if cancel_event.is_set():
                 return None
-                
+
             prefix = f"[{index}/{len(tracks)}]"
-            callback(DownloadEvent("processing", f'{prefix} Matching "{track.display_name}" on YouTube…'))
+            callback(
+                DownloadEvent(
+                    "processing",
+                    f'{prefix} Matching "{track.display_name}" on YouTube…',
+                )
+            )
             try:
-                match = search_youtube_for_track(track, javascript_runtimes=javascript_runtimes)
+                match = search_youtube_for_track(
+                    track, javascript_runtimes=javascript_runtimes
+                )
             except Exception as exc:
-                callback(DownloadEvent("warning", f'{prefix} Could not search YouTube for "{track.display_name}": {exc}'))
+                callback(
+                    DownloadEvent(
+                        "warning",
+                        f'{prefix} Could not search YouTube for "{track.display_name}": {exc}',
+                    )
+                )
                 return None
 
             if match is None:
-                callback(DownloadEvent("warning", f'{prefix} No YouTube match found for "{track.display_name}"'))
+                callback(
+                    DownloadEvent(
+                        "warning",
+                        f'{prefix} No YouTube match found for "{track.display_name}"',
+                    )
+                )
                 return None
 
-            callback(DownloadEvent("log", f'{prefix} Matched "{track.display_name}" to {match}'))
+            callback(
+                DownloadEvent(
+                    "log", f'{prefix} Matched "{track.display_name}" to {match}'
+                )
+            )
             return match
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = []
             for index, track in enumerate(tracks, start=1):
                 futures.append(executor.submit(process_track, index, track))
-            
+
             for future in concurrent.futures.as_completed(futures):
                 if cancel_event.is_set():
                     executor.shutdown(wait=False, cancel_futures=True)
@@ -632,7 +670,9 @@ def expand_input_urls(
 
     return resolved
 
+
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
 
 class _YtDlpLogger:
     """Translate yt-dlp log calls into application events."""
@@ -664,12 +704,14 @@ class _YtDlpLogger:
         if clean:
             self._callback(DownloadEvent("error", clean))
 
+
 def _raise_for_missing_dependencies(report: DependencyReport) -> None:
     if not report.missing_required:
         return
 
     items = "\n".join(f"• {item}" for item in report.missing_required)
     raise MissingDependencyError(f"Missing required software:\n{items}")
+
 
 def download_urls(
     urls: Iterable[str],
@@ -808,7 +850,7 @@ def download_urls(
             executor.submit(_process_item, index, url)
             for index, url in enumerate(resolved_urls, start=1)
         ]
-        
+
         for future in concurrent.futures.as_completed(futures):
             try:
                 future.result()
@@ -825,4 +867,3 @@ def download_urls(
         had_errors=had_errors,
         skipped_videos=skipped_videos,
     )
-

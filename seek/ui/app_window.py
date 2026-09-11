@@ -10,6 +10,23 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_DND = True
+except ImportError:
+    HAS_DND = False
+    DND_FILES = None
+    TkinterDnD = None  # type: ignore
+try:
+    import darkdetect  # type: ignore
+    HAS_DARKDETECT = True
+except ImportError:
+    HAS_DARKDETECT = False
+try:
+    from plyer import notification  # type: ignore
+    HAS_PLYER = True
+except ImportError:
+    HAS_PLYER = False
 
 from seek.core.engine import (
     DownloadEvent,
@@ -23,8 +40,8 @@ from seek.models.links import (
     normalize_youtube_url,
     parse_url_entries,
 )
+from seek.models.config import DownloadConfig
 import seek.core.spotify as spotify
-
 
 APP_TITLE = "SEEK"
 WINDOW_TITLE = "SEEK — YouTube & Spotify Audio Downloader"
@@ -58,7 +75,7 @@ class YouTubeAudioApp:
     def __init__(self, root: tk.Tk) -> None:
         # Auto theme
         try:
-            if darkdetect.theme() == 'Light':
+            if darkdetect.theme() == "Light":
                 global COLORS
                 # Very basic light theme
                 COLORS = {
@@ -95,9 +112,7 @@ class YouTubeAudioApp:
         self.compact_layout = logical_height < 800
         window_x = max(0, (screen_width - window_width) // 2)
         window_y = max(0, (screen_height - window_height) // 2)
-        self.root.geometry(
-            f"{window_width}x{window_height}+{window_x}+{window_y}"
-        )
+        self.root.geometry(f"{window_width}x{window_height}+{window_x}+{window_y}")
         self.root.minsize(
             min(round(820 * display_scale), window_width),
             min(round(600 * display_scale), window_height),
@@ -106,18 +121,14 @@ class YouTubeAudioApp:
 
         default_output = Path.home() / "Downloads" / "YouTube Audio"
         self.output_var = tk.StringVar(value=str(default_output))
-        self.status_var = tk.StringVar(
-            value="Ready to build your audio library"
-        )
+        self.status_var = tk.StringVar(value="Ready to build your audio library")
         self.count_var = tk.StringVar(value="0 videos saved")
         self.link_count_var = tk.StringVar(value="0")
         self.link_badge_var = tk.StringVar(value="0 links")
         self.saved_stat_var = tk.StringVar(value="0")
         self.skipped_stat_var = tk.StringVar(value="0")
         self.visual_state_var = tk.StringVar(value="READY")
-        self.activity_visible_var = tk.BooleanVar(
-            value=logical_height >= 760
-        )
+        self.activity_visible_var = tk.BooleanVar(value=logical_height >= 760)
 
         self.events: queue.Queue[DownloadEvent] = queue.Queue()
         self.config = DownloadConfig()
@@ -813,7 +824,7 @@ class YouTubeAudioApp:
             sticky="ns",
             padx=(0, 14),
         )
-        self.retry_button.grid_remove() # Hidden by default
+        self.retry_button.grid_remove()  # Hidden by default
         self.progress = ttk.Progressbar(
             action_card,
             style="Seek.Horizontal.TProgressbar",
@@ -1045,11 +1056,7 @@ class YouTubeAudioApp:
         if self.visual_state not in {"working", "cancelling"}:
             return
         self.animation_step = (self.animation_step + 1) % 9
-        pulse_color = (
-            COLORS["cyan"]
-            if self.animation_step % 2
-            else COLORS["primary"]
-        )
+        pulse_color = COLORS["cyan"] if self.animation_step % 2 else COLORS["primary"]
         if self.visual_state == "cancelling":
             pulse_color = COLORS["warning"]
         try:
@@ -1105,10 +1112,12 @@ class YouTubeAudioApp:
         if not self.url_input.edit_modified():
             return
         entries = parse_url_entries(self.url_input.get("1.0", "end-1c"))
-        unique_count = len(dict.fromkeys(
-            normalize_youtube_url(url) if is_youtube_url(url) else url
-            for _line, url in entries
-        ))
+        unique_count = len(
+            dict.fromkeys(
+                normalize_youtube_url(url) if is_youtube_url(url) else url
+                for _line, url in entries
+            )
+        )
         self.link_count_var.set(str(unique_count))
         self.link_badge_var.set(
             f"{unique_count} {'link' if unique_count == 1 else 'links'}"
@@ -1223,10 +1232,9 @@ class YouTubeAudioApp:
                 audio_quality=self.config.audio_quality,
                 bandwidth_limit=self.config.bandwidth_limit,
                 recent_destinations=recent,
-                geometry=self.config.geometry
+                geometry=self.config.geometry,
             )
-            self.output_combo["values"] = recent
-
+            self.output_combo["values"] = recent  # type: ignore
 
     def _import_links(self) -> None:
         file_path = filedialog.askopenfilename(
@@ -1267,40 +1275,58 @@ class YouTubeAudioApp:
     def _open_general_settings(self) -> None:
         if self.running:
             return
-            
+
         dialog = tk.Toplevel(self.root)
         dialog.title("Settings")
         dialog.geometry("300x200")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        
+
         main_frame = tk.Frame(dialog, padx=20, pady=20, background=COLORS["surface"])
         main_frame.pack(fill="both", expand=True)
-        
-        tk.Label(main_frame, text="Audio Format:", background=COLORS["surface"], foreground=COLORS["text"]).pack(anchor="w")
-        
+
+        tk.Label(
+            main_frame,
+            text="Audio Format:",
+            background=COLORS["surface"],
+            foreground=COLORS["text"],
+        ).pack(anchor="w")
+
         format_var = tk.StringVar(value=self.config.audio_format)
         formats = ["mp3", "m4a", "flac", "wav"]
-        dropdown = ttk.Combobox(main_frame, textvariable=format_var, values=formats, state="readonly")
+        dropdown = ttk.Combobox(
+            main_frame, textvariable=format_var, values=formats, state="readonly"
+        )
         dropdown.pack(fill="x", pady=(5, 15))
-        
-        tk.Label(main_frame, text="Bandwidth Limit:", background=COLORS["surface"], foreground=COLORS["text"]).pack(anchor="w")
+
+        tk.Label(
+            main_frame,
+            text="Bandwidth Limit:",
+            background=COLORS["surface"],
+            foreground=COLORS["text"],
+        ).pack(anchor="w")
         bw_var = tk.StringVar(value=self.config.bandwidth_limit)
         bw_formats = ["Unlimited", "1 MB/s", "5 MB/s", "10 MB/s", "25 MB/s"]
-        bw_dropdown = ttk.Combobox(main_frame, textvariable=bw_var, values=bw_formats, state="readonly")
+        bw_dropdown = ttk.Combobox(
+            main_frame, textvariable=bw_var, values=bw_formats, state="readonly"
+        )
         bw_dropdown.pack(fill="x", pady=(5, 15))
-        
+
         def save():
             self.config = DownloadConfig(
                 audio_format=format_var.get(),
                 audio_quality="192",
-                bandwidth_limit=bw_var.get()
+                bandwidth_limit=bw_var.get(),
             )
             dialog.destroy()
-            
-        ttk.Button(main_frame, text="Save", command=save, style="Primary.TButton").pack(side="right")
-        ttk.Button(main_frame, text="Cancel", command=dialog.destroy).pack(side="right", padx=10)
+
+        ttk.Button(main_frame, text="Save", command=save, style="Primary.TButton").pack(
+            side="right"
+        )
+        ttk.Button(main_frame, text="Cancel", command=dialog.destroy).pack(
+            side="right", padx=10
+        )
 
     def _open_spotify_settings(self) -> None:
         if self.running:
@@ -1420,10 +1446,12 @@ class YouTubeAudioApp:
             return
 
         entries = parse_url_entries(self.url_input.get("1.0", "end-1c"))
-        urls = list(dict.fromkeys(
-            normalize_youtube_url(url) if is_youtube_url(url) else url
-            for _line_number, url in entries
-        ))
+        urls = list(
+            dict.fromkeys(
+                normalize_youtube_url(url) if is_youtube_url(url) else url
+                for _line_number, url in entries
+            )
+        )
         duplicate_count = len(entries) - len(urls)
         output_text = self.output_var.get().strip()
 
@@ -1442,8 +1470,7 @@ class YouTubeAudioApp:
         ]
         if invalid_entries:
             preview = "\n".join(
-                f"Line {line_number}: {url}"
-                for line_number, url in invalid_entries[:3]
+                f"Line {line_number}: {url}" for line_number, url in invalid_entries[:3]
             )
             if len(invalid_entries) > 3:
                 preview += f"\n…and {len(invalid_entries) - 3} more"
@@ -1553,9 +1580,7 @@ class YouTubeAudioApp:
         except DownloadFailedError as exc:
             self.events.put(DownloadEvent("job_failed", str(exc)))
         except Exception as exc:  # Defensive boundary for the worker thread.
-            self.events.put(
-                DownloadEvent("job_failed", f"Unexpected error: {exc}")
-            )
+            self.events.put(DownloadEvent("job_failed", f"Unexpected error: {exc}"))
 
     def _retry_failed(self) -> None:
         if self.running:
@@ -1565,6 +1590,7 @@ class YouTubeAudioApp:
             return
         try:
             from seek.core.journal import CompletionIndex
+
             index = CompletionIndex(output_dir, None)
             index.clear_failures()
         except Exception:
@@ -1604,42 +1630,42 @@ class YouTubeAudioApp:
 
     def _handle_event(self, event: DownloadEvent) -> None:
         if event.kind == "progress":
-            self.status_var.set(event.message)
+            self.status_var.set(event.message)  # type: ignore
             if self.visual_state != "cancelling":
                 self._set_visual_state("working")
             self._show_progress(event.percent)
         elif event.kind == "processing":
-            self.status_var.set(event.message)
+            self.status_var.set(event.message)  # type: ignore
             if self.visual_state != "cancelling":
                 self._set_visual_state("working")
             self._show_progress(None)
         elif event.kind == "log":
-            self._append_log(event.message)
+            self._append_log(event.message)  # type: ignore
         elif event.kind == "warning":
-            self._append_log(self._prefixed_message("WARNING", event.message))
+            self._append_log(self._prefixed_message("WARNING", event.message))  # type: ignore
         elif event.kind == "error":
-            self._append_log(self._prefixed_message("ERROR", event.message))
+            self._append_log(self._prefixed_message("ERROR", event.message))  # type: ignore
         elif event.kind == "video_complete":
             self.saved_count += 1
             self._update_count()
             self.last_saved_path = event.path
-            self.status_var.set(event.message)
-            self._append_log(event.message)
+            self.status_var.set(event.message)  # type: ignore
+            self._append_log(event.message)  # type: ignore
             self._show_progress(100.0)
         elif event.kind == "video_skipped":
             self.skipped_count += 1
             self._update_count()
             self.last_saved_path = event.path
-            self.status_var.set(event.message)
-            self._append_log(event.message)
+            self.status_var.set(event.message)  # type: ignore
+            self._append_log(event.message)  # type: ignore
         elif event.kind == "job_complete":
-            self._finish_job(event.message, success=True)
+            self._finish_job(event.message, success=True)  # type: ignore
         elif event.kind == "job_partial":
-            self._finish_job(event.message, success=False, warning=True)
+            self._finish_job(event.message, success=False, warning=True)  # type: ignore
         elif event.kind == "job_cancelled":
-            self._finish_job(event.message, success=False)
+            self._finish_job(event.message, success=False)  # type: ignore
         elif event.kind == "job_failed":
-            self._finish_job(event.message, success=False, error=True)
+            self._finish_job(event.message, success=False, error=True)  # type: ignore
 
     def _update_count(self) -> None:
         saved = (
@@ -1647,9 +1673,7 @@ class YouTubeAudioApp:
             f"{'video' if self.saved_count == 1 else 'videos'} saved"
         )
         if self.skipped_count:
-            saved += (
-                f" • {self.skipped_count} already complete"
-            )
+            saved += f" • {self.skipped_count} already complete"
         self.count_var.set(saved)
         if hasattr(self, "saved_stat_var"):
             self.saved_stat_var.set(str(self.saved_count))
@@ -1683,7 +1707,9 @@ class YouTubeAudioApp:
         self.status_var.set(message)
         if success:
             try:
-                notification.notify(title="Download Complete", message=message, app_name="Seek")
+                notification.notify(
+                    title="Download Complete", message=message, app_name="Seek"
+                )
             except Exception:
                 pass
         self._append_log(message)
@@ -1692,7 +1718,7 @@ class YouTubeAudioApp:
             self.retry_button.configure(state="normal")
         else:
             self.retry_button.grid_remove()
-            
+
         if error:
             self._set_visual_state("failed")
         elif warning:
@@ -1716,32 +1742,16 @@ class YouTubeAudioApp:
 
     def _set_running(self, running: bool) -> None:
         self.running = running
-        self.download_button.configure(
-            state="disabled" if running else "normal"
-        )
-        self.cancel_button.configure(
-            state="normal" if running else "disabled"
-        )
-        self.retry_button.configure(
-            state="disabled" if running else "normal"
-        )
+        self.download_button.configure(state="disabled" if running else "normal")
+        self.cancel_button.configure(state="normal" if running else "disabled")
+        self.retry_button.configure(state="disabled" if running else "normal")
         if running:
             self.retry_button.grid_remove()
-        self.browse_button.configure(
-            state="disabled" if running else "normal"
-        )
-        self.url_input.configure(
-            state="disabled" if running else "normal"
-        )
-        self.output_entry.configure(
-            state="disabled" if running else "normal"
-        )
-        self.paste_button.configure(
-            state="disabled" if running else "normal"
-        )
-        self.clear_button.configure(
-            state="disabled" if running else "normal"
-        )
+        self.browse_button.configure(state="disabled" if running else "normal")
+        self.url_input.configure(state="disabled" if running else "normal")
+        self.output_entry.configure(state="disabled" if running else "normal")
+        self.paste_button.configure(state="disabled" if running else "normal")
+        self.clear_button.configure(state="disabled" if running else "normal")
         self.download_menu.entryconfigure(
             "Start download",
             state="disabled" if running else "normal",
@@ -1818,6 +1828,7 @@ class YouTubeAudioApp:
         try:
             import json
             from pathlib import Path
+
             config_dir = Path.home() / ".config" / "seek"
             config_dir.mkdir(parents=True, exist_ok=True)
             state = {
@@ -1825,7 +1836,7 @@ class YouTubeAudioApp:
                 "audio_quality": self.config.audio_quality,
                 "bandwidth_limit": self.config.bandwidth_limit,
                 "recent_destinations": self.config.recent_destinations,
-                "geometry": self.root.geometry()
+                "geometry": self.root.geometry(),
             }
             with open(config_dir / "config.json", "w") as f:
                 json.dump(state, f)
@@ -1836,6 +1847,7 @@ class YouTubeAudioApp:
         try:
             import json
             from pathlib import Path
+
             config_file = Path.home() / ".config" / "seek" / "config.json"
             if config_file.exists():
                 with open(config_file, "r") as f:
@@ -1845,7 +1857,7 @@ class YouTubeAudioApp:
                     audio_quality=state.get("audio_quality", "192"),
                     bandwidth_limit=state.get("bandwidth_limit", "Unlimited"),
                     recent_destinations=state.get("recent_destinations", []),
-                    geometry=state.get("geometry", "")
+                    geometry=state.get("geometry", ""),
                 )
                 if self.config.geometry:
                     self.root.geometry(self.config.geometry)
@@ -1881,7 +1893,7 @@ def main() -> None:
                 ctypes.windll.user32.SetProcessDPIAware()
             except (AttributeError, OSError):
                 pass
-    root = TkinterDnD.Tk()
+    root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
     YouTubeAudioApp(root)
     root.mainloop()
 

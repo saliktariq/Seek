@@ -4,7 +4,10 @@ import os
 import shutil
 import threading
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from seek.core.engine import DownloadEvent
 
 EventCallback = Callable[["DownloadEvent"], None]
 
@@ -20,11 +23,13 @@ _VIDEO_STAGE_RANK = {
     "complete": 3,
 }
 
+
 def _is_nonempty_file(path: Path) -> bool:
     try:
         return path.is_file() and path.stat().st_size > 0
     except OSError:
         return False
+
 
 def _is_complete_video_folder(video_dir: Path) -> bool:
     """Return True only when every required output exists and is non-empty."""
@@ -36,6 +41,7 @@ def _is_complete_video_folder(video_dir: Path) -> bool:
         )
     except OSError:
         return False
+
 
 def _infer_video_stage(video_dir: Path) -> str | None:
     """Infer the furthest durable stage supported by files on disk."""
@@ -60,6 +66,7 @@ def _infer_video_stage(video_dir: Path) -> str | None:
             return "downloaded"
     return None
 
+
 class CompletionIndex:
     """Destination-local journal for download, conversion, and completion."""
 
@@ -81,6 +88,7 @@ class CompletionIndex:
     def _emit(self, kind: str, message: str) -> None:
         if self._callback is not None:
             from seek.core.engine import DownloadEvent
+
             self._callback(DownloadEvent(kind, message))
 
     def _path_from_entry(self, relative_folder: str) -> Path | None:
@@ -177,8 +185,7 @@ class CompletionIndex:
             index_was_invalid = True
             self._emit(
                 "warning",
-                "The completion index had an unsupported format; "
-                "rebuilding it.",
+                "The completion index had an unsupported format; " "rebuilding it.",
             )
         elif raw is not None:
             videos = raw.get("videos") if isinstance(raw, dict) else None
@@ -189,17 +196,11 @@ class CompletionIndex:
             ):
                 needs_upgrade = version != _COMPLETION_INDEX_VERSION
                 for video_id, entry in videos.items():
-                    folder = (
-                        entry.get("folder")
-                        if isinstance(entry, dict)
-                        else None
-                    )
+                    folder = entry.get("folder") if isinstance(entry, dict) else None
                     stage = (
                         "complete"
                         if version == 1
-                        else entry.get("phase")
-                        if isinstance(entry, dict)
-                        else None
+                        else entry.get("phase") if isinstance(entry, dict) else None
                     )
                     if (
                         isinstance(video_id, str)
@@ -213,9 +214,7 @@ class CompletionIndex:
                         if stage == "complete":
                             self._entries[video_id] = folder
                         failures = (
-                            entry.get("failures", 0)
-                            if isinstance(entry, dict)
-                            else 0
+                            entry.get("failures", 0) if isinstance(entry, dict) else 0
                         )
                         if isinstance(failures, int) and failures > 0:
                             self._failures[video_id] = failures
@@ -225,14 +224,11 @@ class CompletionIndex:
                 index_was_invalid = True
                 self._emit(
                     "warning",
-                    "The completion index had an unsupported format; "
-                    "rebuilding it.",
+                    "The completion index had an unsupported format; " "rebuilding it.",
                 )
 
         loaded_records = self._records_locked()
-        for video_id, relative_folder in list(
-            self._candidate_folders.items()
-        ):
+        for video_id, relative_folder in list(self._candidate_folders.items()):
             video_dir = self._path_from_entry(relative_folder)
             if video_dir is None or not video_dir.is_dir():
                 self._candidate_folders.pop(video_id, None)
@@ -259,23 +255,16 @@ class CompletionIndex:
 
         for candidate in candidates:
             match = _VIDEO_FOLDER_ID.search(candidate.name)
-            relative_folder = self._relative_folder(candidate)
-            if (
-                match is None
-                or relative_folder is None
-                or not candidate.is_dir()
-            ):
+            relative_folder = self._relative_folder(candidate)  # type: ignore
+            if match is None or relative_folder is None or not candidate.is_dir():
                 continue
             video_id = match.group(1)
             inferred_stage = _infer_video_stage(candidate)
             existing_stage = self._stages.get(video_id)
-            if (
-                existing_stage is None
-                or (
-                    inferred_stage is not None
-                    and _VIDEO_STAGE_RANK[inferred_stage]
-                    > _VIDEO_STAGE_RANK[existing_stage]
-                )
+            if existing_stage is None or (
+                inferred_stage is not None
+                and _VIDEO_STAGE_RANK[inferred_stage]
+                > _VIDEO_STAGE_RANK[existing_stage]
             ):
                 self._set_stage_locked(
                     video_id,
@@ -313,8 +302,7 @@ class CompletionIndex:
                 )
             self._emit(
                 "log",
-                f"Resume check: found {' and '.join(parts)} "
-                "in this destination.",
+                f"Resume check: found {' and '.join(parts)} " "in this destination.",
             )
 
     def _save_locked(self) -> None:
@@ -410,10 +398,7 @@ class CompletionIndex:
             removed: list[str] = []
             for candidate in candidates:
                 name = candidate.name.lower()
-                if not (
-                    name.startswith("audio.")
-                    or name.startswith("thumbnail.")
-                ):
+                if not (name.startswith("audio.") or name.startswith("thumbnail.")):
                     continue
                 try:
                     if candidate.is_file() and candidate.stat().st_size == 0:
@@ -443,8 +428,7 @@ class CompletionIndex:
             not normalized_id
             or relative_folder is None
             or inferred_stage is None
-            or _VIDEO_STAGE_RANK[inferred_stage]
-            < _VIDEO_STAGE_RANK[minimum_stage]
+            or _VIDEO_STAGE_RANK[inferred_stage] < _VIDEO_STAGE_RANK[minimum_stage]
         ):
             return False
 
@@ -460,10 +444,9 @@ class CompletionIndex:
     def mark_downloaded(self, video_id: str, media_path: Path) -> bool:
         """Record that yt-dlp produced a complete source media file."""
 
-        if (
-            media_path.name.lower().endswith((".part", ".tmp", ".ytdl"))
-            or not _is_nonempty_file(media_path)
-        ):
+        if media_path.name.lower().endswith(
+            (".part", ".tmp", ".ytdl")
+        ) or not _is_nonempty_file(media_path):
             return False
         return self._mark_stage(video_id, media_path.parent, "downloaded")
 
@@ -499,4 +482,3 @@ class CompletionIndex:
                 return
             self._failures.clear()
             self._save_locked()
-

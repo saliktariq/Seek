@@ -4,10 +4,12 @@ import sys
 with open("app.py", "r") as f:
     app_code = f.read()
 
+
 def extract_class(code, class_name):
     pattern = rf"^(class {class_name}\b.*?)(?=\nclass |\nif __name__ == |\Z)"
     match = re.search(pattern, code, re.MULTILINE | re.DOTALL)
     return match.group(1) if match else ""
+
 
 imports = """from __future__ import annotations
 import enum
@@ -74,7 +76,9 @@ with open("seek/models/state.py", "w") as f:
 with open("seek/ui/theme.py", "w") as f:
     f.write(theme_code)
 
-widgets_code = "import tkinter as tk\nimport math\nfrom seek.ui.theme import COLORS, FONTS\n\n"
+widgets_code = (
+    "import tkinter as tk\nimport math\nfrom seek.ui.theme import COLORS, FONTS\n\n"
+)
 widgets_code += extract_class(app_code, "AudioVisualizer") + "\n"
 widgets_code += extract_class(app_code, "StatCard") + "\n"
 widgets_code += extract_class(app_code, "ScrollableFrame") + "\n"

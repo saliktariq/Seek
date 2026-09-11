@@ -33,7 +33,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-
 _SPOTIFY_KINDS = ("track", "album", "playlist")
 _SPOTIFY_ID = re.compile(r"^[A-Za-z0-9]{10,40}$")
 _TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -210,9 +209,7 @@ class SpotifyClient:
         timeout: float = 15.0,
     ) -> None:
         if not client_id or not client_secret:
-            raise SpotifyAuthError(
-                "Spotify Client ID and Client Secret are required."
-            )
+            raise SpotifyAuthError("Spotify Client ID and Client Secret are required.")
         self._client_id = client_id
         self._client_secret = client_secret
         self._timeout = timeout
@@ -241,12 +238,9 @@ class SpotifyClient:
         except urllib.error.HTTPError as exc:
             if exc.code in (400, 401):
                 raise SpotifyAuthError(
-                    "Spotify rejected the Client ID/Secret. Check Spotify "
-                    "settings."
+                    "Spotify rejected the Client ID/Secret. Check Spotify " "settings."
                 ) from exc
-            raise SpotifyError(
-                f"Spotify authentication failed ({exc.code})."
-            ) from exc
+            raise SpotifyError(f"Spotify authentication failed ({exc.code}).") from exc
         except urllib.error.URLError as exc:
             raise SpotifyError(f"Could not reach Spotify: {exc.reason}") from exc
 
@@ -276,7 +270,9 @@ class SpotifyClient:
         def attempt(*, force_refresh: bool) -> dict[str, Any]:
             request = urllib.request.Request(
                 url,
-                headers={"Authorization": f"Bearer {self._access_token(force_refresh=force_refresh)}"},
+                headers={
+                    "Authorization": f"Bearer {self._access_token(force_refresh=force_refresh)}"
+                },
             )
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
@@ -352,9 +348,7 @@ class SpotifyClient:
                 if not isinstance(item, dict):
                     continue
                 track_payload = item.get("track")
-                if not isinstance(track_payload, dict) or track_payload.get(
-                    "is_local"
-                ):
+                if not isinstance(track_payload, dict) or track_payload.get("is_local"):
                     continue
                 track = _track_from_payload(track_payload)
                 if track is not None:
@@ -425,7 +419,7 @@ def _track_from_embed_entity(entity: dict[str, Any]) -> SpotifyTrack | None:
         id=str(track_id),
         title=str(name),
         artists=artists,
-        album=str(album.get("name") or ""),
+        album=str(album.get("name") or ""),  # type: ignore
         duration_ms=int(duration) if isinstance(duration, (int, float)) else None,
     )
 
@@ -472,4 +466,6 @@ def fetch_track_without_credentials(
             "free Client ID/Secret from File → Spotify settings… and try "
             "again."
         )
-    return SpotifyTrack(id=spotify_id, title=title, artists=(), album="", duration_ms=None)
+    return SpotifyTrack(
+        id=spotify_id, title=title, artists=(), album="", duration_ms=None
+    )

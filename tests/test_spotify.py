@@ -23,7 +23,7 @@ class _FakeResponse:
     def __enter__(self) -> "_FakeResponse":
         return self
 
-    def __exit__(self, *_args: object) -> bool:
+    def __exit__(self, *_args: object) -> bool:  # type: ignore
         return False
 
     def read(self) -> bytes:
@@ -166,9 +166,7 @@ class SpotifyClientTests(unittest.TestCase):
                 request.full_url, 400, "Bad Request", {}, io.BytesIO(b"{}")
             )
 
-        with mock.patch.object(
-            spotify.urllib.request, "urlopen", side_effect=_urlopen
-        ):
+        with mock.patch.object(spotify.urllib.request, "urlopen", side_effect=_urlopen):
             client = spotify.SpotifyClient("bad-id", "bad-secret")
             with self.assertRaises(spotify.SpotifyAuthError):
                 client.get_track("abc")
@@ -240,7 +238,7 @@ class SpotifyClientTests(unittest.TestCase):
         with mock.patch.object(
             spotify.urllib.request,
             "urlopen",
-            side_effect=_urlopen_dispatcher(responses),
+            side_effect=_urlopen_dispatcher(responses),  # type: ignore
         ):
             client = spotify.SpotifyClient("client-id", "client-secret")
             tracks = client.get_album_tracks("alb1")
@@ -281,7 +279,7 @@ class SpotifyClientTests(unittest.TestCase):
         with mock.patch.object(
             spotify.urllib.request,
             "urlopen",
-            side_effect=_urlopen_dispatcher(responses),
+            side_effect=_urlopen_dispatcher(responses),  # type: ignore
         ):
             client = spotify.SpotifyClient("client-id", "client-secret")
             tracks = client.get_playlist_tracks("pl1")
@@ -335,7 +333,7 @@ class ZeroSetupTrackTests(unittest.TestCase):
             }
         }
         html = (
-            "<html><script id=\"__NEXT_DATA__\" type=\"application/json\">"
+            '<html><script id="__NEXT_DATA__" type="application/json">'
             f"{json.dumps(next_data)}</script></html>"
         )
 

@@ -17,13 +17,23 @@ import seek.core.spotify as spotify
 
 from seek.utils.system import DependencyReport, format_bytes
 from seek.core.engine import (
-    DownloadEvent, DownloadFailedError, UserCancelledError, DownloadResult,
-    _duration_tolerance, _select_best_match,
-    build_ydl_options, download_url, download_urls, write_info_file
+    DownloadEvent,
+    DownloadFailedError,
+    UserCancelledError,
+    DownloadResult,
+    _duration_tolerance,
+    _select_best_match,
+    build_ydl_options,
+    download_url,
+    download_urls,
+    write_info_file,
 )
 from seek.models.links import (
-    is_single_video_url, is_youtube_url, normalize_youtube_url,
-    parse_url_entries, parse_url_list
+    is_single_video_url,
+    is_youtube_url,
+    normalize_youtube_url,
+    parse_url_entries,
+    parse_url_list,
 )
 from seek.core.journal import CompletionIndex
 
@@ -59,8 +69,7 @@ class UrlValidationTests(unittest.TestCase):
     def test_parse_entries_preserves_line_numbers_and_strips_bom(self) -> None:
         self.assertEqual(
             parse_url_entries(
-                "\ufeffhttps://youtu.be/one\r\n\r\n  "
-                "https://youtu.be/two  \r\n"
+                "\ufeffhttps://youtu.be/one\r\n\r\n  " "https://youtu.be/two  \r\n"
             ),
             [
                 (1, "https://youtu.be/one"),
@@ -96,32 +105,20 @@ class UrlValidationTests(unittest.TestCase):
 
     def test_video_url_does_not_expand_playlist_query(self) -> None:
         self.assertTrue(
-            is_single_video_url(
-                "https://www.youtube.com/watch?v=abc123&list=PL123"
-            )
+            is_single_video_url("https://www.youtube.com/watch?v=abc123&list=PL123")
         )
         self.assertTrue(is_single_video_url("https://youtu.be/abc123"))
-        self.assertTrue(
-            is_single_video_url("https://www.youtube.com/shorts/abc123")
+        self.assertTrue(is_single_video_url("https://www.youtube.com/shorts/abc123"))
+        self.assertFalse(
+            is_single_video_url("https://www.youtube.com/playlist?list=PL123")
         )
         self.assertFalse(
-            is_single_video_url(
-                "https://www.youtube.com/playlist?list=PL123"
-            )
-        )
-        self.assertFalse(
-            is_single_video_url(
-                "https://www.youtube.com/watch?list=PL123"
-            )
+            is_single_video_url("https://www.youtube.com/watch?list=PL123")
         )
         self.assertTrue(
-            is_single_video_url(
-                "https://www.youtube.com/watch?v=abc123&list=PL123"
-            )
+            is_single_video_url("https://www.youtube.com/watch?v=abc123&list=PL123")
         )
-        self.assertFalse(
-            is_single_video_url("https://www.youtube.com/@example/videos")
-        )
+        self.assertFalse(is_single_video_url("https://www.youtube.com/@example/videos"))
 
 
 class OutputTests(unittest.TestCase):
@@ -238,21 +235,19 @@ class OutputTests(unittest.TestCase):
         class FakePostProcessor:
             pass
 
-        fake_utils.DownloadCancelled = FakeDownloadCancelled
-        fake_utils.DownloadError = FakeDownloadError
-        fake_utils.PostProcessingError = FakePostProcessingError
+        fake_utils.DownloadCancelled = FakeDownloadCancelled  # type: ignore
+        fake_utils.DownloadError = FakeDownloadError  # type: ignore
+        fake_utils.PostProcessingError = FakePostProcessingError  # type: ignore
 
-        fake_postprocessor = types.SimpleNamespace(
-            PostProcessor=FakePostProcessor
-        )
-        fake_yt_dlp.utils = fake_utils
-        fake_yt_dlp.postprocessor = fake_postprocessor
+        fake_postprocessor = types.SimpleNamespace(PostProcessor=FakePostProcessor)
+        fake_yt_dlp.utils = fake_utils  # type: ignore
+        fake_yt_dlp.postprocessor = fake_postprocessor  # type: ignore
 
         class FakeYoutubeDL:
             last_options = None
             write_thumbnail = True
             download_attempts = 0
-            recorded_download_phases = []
+            recorded_download_phases = []  # type: ignore
 
             def __init__(self, options):
                 type(self).last_options = options
@@ -282,9 +277,7 @@ class OutputTests(unittest.TestCase):
                     return 0
 
                 type(self).download_attempts += 1
-                output_root = Path(
-                    type(self).last_options["paths"]["home"]
-                )
+                output_root = Path(type(self).last_options["paths"]["home"])
                 video_dir = output_root / "Fake title [fake123]"
                 video_dir.mkdir(parents=True)
                 source_path = video_dir / "audio.webm"
@@ -297,10 +290,9 @@ class OutputTests(unittest.TestCase):
                     }
                 )
                 state = json.loads(
-                    (
-                        output_root
-                        / ".youtube-audio-completed.json"
-                    ).read_text(encoding="utf-8")
+                    (output_root / ".youtube-audio-completed.json").read_text(
+                        encoding="utf-8"
+                    )
                 )
                 type(self).recorded_download_phases.append(
                     state["videos"]["fake123"]["phase"]
@@ -317,10 +309,10 @@ class OutputTests(unittest.TestCase):
                 )
                 return 0
 
-        fake_yt_dlp.YoutubeDL = FakeYoutubeDL
+        fake_yt_dlp.YoutubeDL = FakeYoutubeDL  # type: ignore
 
         with tempfile.TemporaryDirectory() as temporary:
-            events = []
+            events = []  # type: ignore
             with (
                 mock.patch.dict(
                     sys.modules,
@@ -347,7 +339,7 @@ class OutputTests(unittest.TestCase):
                     threading.Event(),
                 )
 
-                repeat_events = []
+                repeat_events = []  # type: ignore
                 repeat_result = download_url(
                     "https://www.youtube.com/watch?v=fake123",
                     Path(temporary),
@@ -357,7 +349,7 @@ class OutputTests(unittest.TestCase):
 
                 FakeYoutubeDL.write_thumbnail = False
                 partial_root = Path(temporary) / "partial"
-                partial_events = []
+                partial_events = []  # type: ignore
                 partial_result = download_url(
                     "https://www.youtube.com/watch?v=fake456",
                     partial_root,
@@ -376,40 +368,31 @@ class OutputTests(unittest.TestCase):
                 (video_dir / "info.txt").read_text(encoding="utf-8"),
                 "Title: Fake title\n\nDescription:\nFake description\n",
             )
-            self.assertEqual(FakeYoutubeDL.last_options["noplaylist"], True)
-            self.assertTrue(
-                any(event.kind == "video_complete" for event in events)
-            )
+            self.assertEqual(FakeYoutubeDL.last_options["noplaylist"], True)  # type: ignore
+            self.assertTrue(any(event.kind == "video_complete" for event in events))
             self.assertEqual(repeat_result.completed_videos, 0)
             self.assertEqual(repeat_result.skipped_videos, 1)
             self.assertFalse(repeat_result.had_errors)
             self.assertTrue(
-                any(
-                    event.kind == "video_skipped"
-                    for event in repeat_events
-                )
+                any(event.kind == "video_skipped" for event in repeat_events)
             )
             self.assertEqual(partial_result.completed_videos, 0)
             self.assertTrue(partial_result.had_errors)
-            self.assertTrue(
-                any(event.kind == "error" for event in partial_events)
-            )
+            self.assertTrue(any(event.kind == "error" for event in partial_events))
             self.assertEqual(FakeYoutubeDL.download_attempts, 2)
             self.assertEqual(
                 FakeYoutubeDL.recorded_download_phases,
                 ["downloaded", "downloaded"],
             )
             complete_state = json.loads(
-                (
-                    Path(temporary)
-                    / ".youtube-audio-completed.json"
-                ).read_text(encoding="utf-8")
+                (Path(temporary) / ".youtube-audio-completed.json").read_text(
+                    encoding="utf-8"
+                )
             )
             partial_state = json.loads(
-                (
-                    partial_root
-                    / ".youtube-audio-completed.json"
-                ).read_text(encoding="utf-8")
+                (partial_root / ".youtube-audio-completed.json").read_text(
+                    encoding="utf-8"
+                )
             )
             self.assertEqual(complete_state["version"], 2)
             self.assertEqual(
@@ -434,12 +417,8 @@ class CompletionIndexTests(unittest.TestCase):
             source_path = video_dir / "audio.webm"
             source_path.write_bytes(b"source audio")
 
-            self.assertTrue(
-                index.mark_downloaded("phase123", source_path)
-            )
-            state = json.loads(
-                index.path.read_text(encoding="utf-8")
-            )
+            self.assertTrue(index.mark_downloaded("phase123", source_path))
+            state = json.loads(index.path.read_text(encoding="utf-8"))
             self.assertEqual(state["version"], 2)
             self.assertEqual(
                 state["videos"]["phase123"]["phase"],
@@ -449,9 +428,7 @@ class CompletionIndexTests(unittest.TestCase):
             source_path.unlink()
             (video_dir / "audio.mp3").write_bytes(b"mp3")
             self.assertTrue(index.mark_converted("phase123", video_dir))
-            state = json.loads(
-                index.path.read_text(encoding="utf-8")
-            )
+            state = json.loads(index.path.read_text(encoding="utf-8"))
             self.assertEqual(
                 state["videos"]["phase123"]["phase"],
                 "converted",
@@ -464,9 +441,7 @@ class CompletionIndexTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertTrue(index.mark_complete("phase123", video_dir))
-            state = json.loads(
-                index.path.read_text(encoding="utf-8")
-            )
+            state = json.loads(index.path.read_text(encoding="utf-8"))
             self.assertEqual(
                 state["videos"]["phase123"]["phase"],
                 "complete",
@@ -529,12 +504,7 @@ class CompletionIndexTests(unittest.TestCase):
                 complete.resolve(),
             )
             self.assertIsNone(index.find_complete("partial123"))
-            self.assertTrue(
-                (
-                    output_root
-                    / ".youtube-audio-completed.json"
-                ).is_file()
-            )
+            self.assertTrue((output_root / ".youtube-audio-completed.json").is_file())
 
             (complete / "thumbnail.jpg").write_bytes(b"")
             reloaded = CompletionIndex(output_root)
@@ -584,11 +554,11 @@ class CompletionIndexTests(unittest.TestCase):
         class FakePostProcessor:
             pass
 
-        fake_utils.DownloadCancelled = FakeDownloadCancelled
-        fake_utils.DownloadError = FakeDownloadError
-        fake_utils.PostProcessingError = FakePostProcessingError
-        fake_yt_dlp.utils = fake_utils
-        fake_yt_dlp.postprocessor = types.SimpleNamespace(
+        fake_utils.DownloadCancelled = FakeDownloadCancelled  # type: ignore
+        fake_utils.DownloadError = FakeDownloadError  # type: ignore
+        fake_utils.PostProcessingError = FakePostProcessingError  # type: ignore
+        fake_yt_dlp.utils = fake_utils  # type: ignore
+        fake_yt_dlp.postprocessor = types.SimpleNamespace(  # type: ignore
             PostProcessor=FakePostProcessor
         )
 
@@ -626,10 +596,7 @@ class CompletionIndexTests(unittest.TestCase):
                         continue
 
                     self.download_attempts += 1
-                    video_dir = (
-                        output_root
-                        / f"Video {video_id} [{video_id}]"
-                    )
+                    video_dir = output_root / f"Video {video_id} [{video_id}]"
                     if number == 140:
                         type(self).zero_artifact_was_removed = not (
                             video_dir / "audio.mp3"
@@ -644,15 +611,13 @@ class CompletionIndexTests(unittest.TestCase):
                 type(self).last_download_attempts = self.download_attempts
                 return 0
 
-        fake_yt_dlp.YoutubeDL = FakeYoutubeDL
+        fake_yt_dlp.YoutubeDL = FakeYoutubeDL  # type: ignore
 
         with tempfile.TemporaryDirectory() as temporary:
             output_root = Path(temporary)
             video_ids = [f"id{number:03d}" for number in range(300)]
             for video_id in video_ids[:140]:
-                _write_complete_output(
-                    output_root / f"Video {video_id} [{video_id}]"
-                )
+                _write_complete_output(output_root / f"Video {video_id} [{video_id}]")
             partial = output_root / "Video id140 [id140]"
             partial.mkdir()
             (partial / "audio.mp3").write_bytes(b"")
@@ -662,7 +627,7 @@ class CompletionIndexTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            events = []
+            events = []  # type: ignore
             with (
                 mock.patch.dict(
                     sys.modules,
@@ -692,7 +657,7 @@ class CompletionIndexTests(unittest.TestCase):
             self.assertEqual(result.skipped_videos, 140)
             self.assertEqual(result.completed_videos, 160)
             self.assertFalse(result.had_errors)
-            self.assertEqual(FakeYoutubeDL.last_download_attempts, 160)
+            self.assertEqual(FakeYoutubeDL.last_download_attempts, 160)  # type: ignore
             self.assertTrue(FakeYoutubeDL.zero_artifact_was_removed)
             self.assertEqual(
                 sum(event.kind == "video_skipped" for event in events),
@@ -711,7 +676,8 @@ class RuntimeDetectionTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                system, "_find_executable",
+                system,
+                "_find_executable",
                 side_effect=find_executable,
             ),
             mock.patch.object(
@@ -731,7 +697,8 @@ class RuntimeDetectionTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                system, "_find_executable",
+                system,
+                "_find_executable",
                 side_effect=find_executable,
             ),
             mock.patch.object(
@@ -751,7 +718,7 @@ class RuntimeDetectionTests(unittest.TestCase):
 
 class BatchDownloadTests(unittest.TestCase):
     def test_batch_continues_after_one_input_fails(self) -> None:
-        callback_events = []
+        callback_events = []  # type: ignore
         results = [
             DownloadResult(1, False),
             DownloadFailedError("Unavailable"),
@@ -789,13 +756,10 @@ class BatchDownloadTests(unittest.TestCase):
         self.assertEqual(mocked_download.call_count, 3)
         self.assertEqual(result.completed_videos, 3)
         self.assertTrue(result.had_errors)
-        self.assertTrue(
-            any(event.kind == "error" for event in callback_events)
-        )
+        self.assertTrue(any(event.kind == "error" for event in callback_events))
         self.assertTrue(
             any(
-                event.kind == "processing"
-                and event.message.startswith("[1/3]")
+                event.kind == "processing" and event.message.startswith("[1/3]")
                 for event in callback_events
             )
         )
@@ -832,7 +796,7 @@ class BatchDownloadTests(unittest.TestCase):
         self.assertEqual(result.completed_videos, 1)
 
     def test_batch_treats_already_complete_items_as_success(self) -> None:
-        callback_events = []
+        callback_events = []  # type: ignore
         with (
             tempfile.TemporaryDirectory() as temporary,
             mock.patch.object(
@@ -863,14 +827,13 @@ class BatchDownloadTests(unittest.TestCase):
         self.assertFalse(result.had_errors)
         self.assertFalse(
             any(
-                event.kind == "warning"
-                and "No complete videos" in event.message
+                event.kind == "warning" and "No complete videos" in event.message
                 for event in callback_events
             )
         )
 
     def test_batch_counts_unique_paths_even_when_a_source_fails(self) -> None:
-        events = []
+        events = []  # type: ignore
         first_path = Path("downloads") / "First [one]"
         second_path = Path("downloads") / "Second [two]"
 
@@ -967,7 +930,7 @@ class BatchDownloadTests(unittest.TestCase):
 
 class SpotifyBridgeTests(unittest.TestCase):
     def test_expand_input_urls_passes_through_youtube_links(self) -> None:
-        events = []
+        events = []  # type: ignore
         result = engine.expand_input_urls(
             ["https://youtu.be/abc123"],
             events.append,
@@ -977,7 +940,7 @@ class SpotifyBridgeTests(unittest.TestCase):
         self.assertEqual(events, [])
 
     def test_expand_input_urls_reports_unsupported_links(self) -> None:
-        events = []
+        events = []  # type: ignore
         result = engine.expand_input_urls(
             ["https://example.com/not-supported"],
             events.append,
@@ -994,7 +957,7 @@ class SpotifyBridgeTests(unittest.TestCase):
             album="Album",
             duration_ms=200000,
         )
-        events = []
+        events = []  # type: ignore
         with (
             mock.patch.object(spotify, "load_credentials", return_value=None),
             mock.patch.object(
@@ -1016,7 +979,7 @@ class SpotifyBridgeTests(unittest.TestCase):
         self.assertEqual(result, ["https://www.youtube.com/watch?v=match123"])
 
     def test_expand_input_urls_requires_credentials_for_playlists(self) -> None:
-        events = []
+        events = []  # type: ignore
         with mock.patch.object(spotify, "load_credentials", return_value=None):
             result = engine.expand_input_urls(
                 ["https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"],
@@ -1048,15 +1011,13 @@ class SpotifyBridgeTests(unittest.TestCase):
                 duration_ms=100000,
             ),
         ]
-        events = []
+        events = []  # type: ignore
         with (
             mock.patch.object(
                 spotify, "load_credentials", return_value=("id", "secret")
             ),
             mock.patch.object(spotify.SpotifyClient, "__init__", return_value=None),
-            mock.patch.object(
-                spotify.SpotifyClient, "resolve", return_value=tracks
-            ),
+            mock.patch.object(spotify.SpotifyClient, "resolve", return_value=tracks),
             mock.patch.object(
                 engine,
                 "search_youtube_for_track",
@@ -1087,15 +1048,13 @@ class SpotifyBridgeTests(unittest.TestCase):
             album="Album",
             duration_ms=200000,
         )
-        events = []
+        events = []  # type: ignore
         with (
             mock.patch.object(spotify, "load_credentials", return_value=None),
             mock.patch.object(
                 spotify, "fetch_track_without_credentials", return_value=track
             ),
-            mock.patch.object(
-                engine, "search_youtube_for_track", return_value=None
-            ),
+            mock.patch.object(engine, "search_youtube_for_track", return_value=None),
         ):
             result = engine.expand_input_urls(
                 ["https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"],
@@ -1137,7 +1096,7 @@ class SpotifyBridgeTests(unittest.TestCase):
                     ]
                 }
 
-        fake_yt_dlp.YoutubeDL = FakeYoutubeDL
+        fake_yt_dlp.YoutubeDL = FakeYoutubeDL  # type: ignore
 
         track = spotify.SpotifyTrack(
             id="abc",
@@ -1167,7 +1126,7 @@ class SpotifyBridgeTests(unittest.TestCase):
             def extract_info(self, _query, download):
                 return {"entries": [{"id": "first"}, {"id": "second"}]}
 
-        fake_yt_dlp.YoutubeDL = FakeYoutubeDL
+        fake_yt_dlp.YoutubeDL = FakeYoutubeDL  # type: ignore
 
         track = spotify.SpotifyTrack(
             id="def", title="Song", artists=(), album="", duration_ms=None
@@ -1223,17 +1182,13 @@ class UrlNormalizationTests(unittest.TestCase):
         )
 
     def test_normalizes_playlist_host_only(self) -> None:
-        result = normalize_youtube_url(
-            "https://youtube.com/playlist?list=PL123"
-        )
+        result = normalize_youtube_url("https://youtube.com/playlist?list=PL123")
         self.assertIn("www.youtube.com", result)
         self.assertIn("playlist", result)
         self.assertIn("PL123", result)
 
     def test_normalizes_channel_host_only(self) -> None:
-        result = normalize_youtube_url(
-            "https://youtube.com/@example/videos"
-        )
+        result = normalize_youtube_url("https://youtube.com/@example/videos")
         self.assertIn("www.youtube.com", result)
         self.assertIn("@example", result)
 
@@ -1294,7 +1249,7 @@ class DurationToleranceTests(unittest.TestCase):
         entries = [{"id": "a", "duration": 218}]
         result = _select_best_match(entries, 200_000)
         self.assertIsNotNone(result)
-        self.assertEqual(result["id"], "a")
+        self.assertEqual(result["id"], "a")  # type: ignore
 
     def test_select_best_match_rejects_outside_tolerance(self) -> None:
         # 60s track, tolerance = 6s, candidate is 20s off -> rejected, falls back
@@ -1304,7 +1259,7 @@ class DurationToleranceTests(unittest.TestCase):
         ]
         result = _select_best_match(entries, 60_000)
         # Both are outside tolerance (20s diff > 6s), so falls back to first
-        self.assertEqual(result["id"], "far")
+        self.assertEqual(result["id"], "far")  # type: ignore
 
 
 class FailureTrackingTests(unittest.TestCase):
@@ -1340,12 +1295,8 @@ class FailureTrackingTests(unittest.TestCase):
             index.mark_downloaded("fail2", video_dir / "audio.webm")
             index.record_failure("fail2")
 
-            state = json.loads(
-                index.path.read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                state["videos"]["fail2"]["failures"], 1
-            )
+            state = json.loads(index.path.read_text(encoding="utf-8"))
+            self.assertEqual(state["videos"]["fail2"]["failures"], 1)
 
     def test_zero_failures_not_written_to_journal(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1354,12 +1305,8 @@ class FailureTrackingTests(unittest.TestCase):
             _write_complete_output(video_dir)
 
             index = CompletionIndex(output_root)
-            state = json.loads(
-                index.path.read_text(encoding="utf-8")
-            )
-            self.assertNotIn(
-                "failures", state["videos"]["nofail"]
-            )
+            state = json.loads(index.path.read_text(encoding="utf-8"))
+            self.assertNotIn("failures", state["videos"]["nofail"])
 
 
 class JournalTmpCleanupTests(unittest.TestCase):
@@ -1368,9 +1315,7 @@ class JournalTmpCleanupTests(unittest.TestCase):
     def test_stale_tmp_file_is_removed_on_index_creation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output_root = Path(temporary)
-            stale_tmp = (
-                output_root / ".youtube-audio-completed.json.tmp"
-            )
+            stale_tmp = output_root / ".youtube-audio-completed.json.tmp"
             stale_tmp.write_text('{"stale": true}', encoding="utf-8")
             self.assertTrue(stale_tmp.exists())
 
@@ -1382,9 +1327,7 @@ class JournalTmpCleanupTests(unittest.TestCase):
             output_root = Path(temporary)
             # No .tmp file exists — should not raise
             _index = CompletionIndex(output_root)
-            stale_tmp = (
-                output_root / ".youtube-audio-completed.json.tmp"
-            )
+            stale_tmp = output_root / ".youtube-audio-completed.json.tmp"
             self.assertFalse(stale_tmp.exists())
 
 

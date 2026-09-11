@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlparse
 import re
 
+
 def is_youtube_url(value: str) -> bool:
     """Return True for an HTTP(S) URL hosted by YouTube."""
 
@@ -22,6 +23,7 @@ def is_youtube_url(value: str) -> bool:
         or host.endswith(".youtube-nocookie.com")
     )
 
+
 def is_single_video_url(value: str) -> bool:
     """Distinguish a video URL from an explicit playlist or channel URL."""
 
@@ -40,6 +42,7 @@ def is_single_video_url(value: str) -> bool:
         or path.startswith("/live/")
         or path.startswith("/embed/")
     )
+
 
 def normalize_youtube_url(url: str) -> str:
     """Return a canonical form of a YouTube URL for deduplication.
@@ -91,6 +94,7 @@ def normalize_youtube_url(url: str) -> str:
     )
     return normalized.geturl()
 
+
 def parse_url_entries(value: str) -> list[tuple[int, str]]:
     """Return nonblank URL entries with their original one-based line number."""
 
@@ -100,6 +104,7 @@ def parse_url_entries(value: str) -> list[tuple[int, str]]:
         if url:
             entries.append((line_number, url))
     return entries
+
 
 def parse_url_list(value: str) -> list[str]:
     """Parse one URL per line, removing blanks and exact duplicates."""
@@ -111,4 +116,3 @@ def parse_url_list(value: str) -> list[str]:
             urls.append(url)
             seen.add(url)
     return urls
-

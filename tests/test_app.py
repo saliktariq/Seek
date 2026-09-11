@@ -56,7 +56,7 @@ class WorkerSummaryTests(unittest.TestCase):
 
         event = worker.events.get_nowait()
         self.assertEqual(event.kind, "job_complete")
-        self.assertIn("140 already-complete videos skipped", event.message)
+        self.assertIn("140 already-complete videos skipped", event.message)  # type: ignore
 
     def test_mixed_resume_summary_reports_new_and_skipped_counts(self) -> None:
         worker = self._worker_without_tk()
@@ -72,14 +72,14 @@ class WorkerSummaryTests(unittest.TestCase):
 
         event = worker.events.get_nowait()
         self.assertEqual(event.kind, "job_complete")
-        self.assertIn("160 new videos saved", event.message)
-        self.assertIn("140 already-complete videos skipped", event.message)
+        self.assertIn("160 new videos saved", event.message)  # type: ignore
+        self.assertIn("140 already-complete videos skipped", event.message)  # type: ignore
 
 
 class UiStateTests(unittest.TestCase):
     def test_link_counter_counts_unique_nonblank_links(self) -> None:
         view = object.__new__(app.YouTubeAudioApp)
-        view.url_input = FakeText(
+        view.url_input = FakeText(  # type: ignore
             "\n".join(
                 [
                     "https://youtu.be/alpha",
@@ -89,22 +89,22 @@ class UiStateTests(unittest.TestCase):
                 ]
             )
         )
-        view.link_count_var = FakeVar()
-        view.link_badge_var = FakeVar()
+        view.link_count_var = FakeVar()  # type: ignore
+        view.link_badge_var = FakeVar()  # type: ignore
 
         view._on_links_modified()
 
         self.assertEqual(view.link_count_var.get(), "2")
         self.assertEqual(view.link_badge_var.get(), "2 links")
-        self.assertFalse(view.url_input.modified)
+        self.assertFalse(view.url_input.modified)  # type: ignore
 
     def test_saved_and_skipped_counts_update_dashboard(self) -> None:
         view = object.__new__(app.YouTubeAudioApp)
         view.saved_count = 1
         view.skipped_count = 140
-        view.count_var = FakeVar()
-        view.saved_stat_var = FakeVar()
-        view.skipped_stat_var = FakeVar()
+        view.count_var = FakeVar()  # type: ignore
+        view.saved_stat_var = FakeVar()  # type: ignore
+        view.skipped_stat_var = FakeVar()  # type: ignore
 
         view._update_count()
 
@@ -117,7 +117,7 @@ class UiStateTests(unittest.TestCase):
 
     def test_visual_state_has_headless_safe_fallback(self) -> None:
         view = object.__new__(app.YouTubeAudioApp)
-        view.visual_state_var = FakeVar()
+        view.visual_state_var = FakeVar()  # type: ignore
 
         view._set_visual_state("complete")
 
