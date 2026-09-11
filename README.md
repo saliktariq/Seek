@@ -1,20 +1,23 @@
 # SEEK
 
 SEEK is a colourful Python desktop application for saving audio from one or
-more YouTube video, playlist, or channel links. Paste one link per line; every
-downloaded video gets its own folder:
+more YouTube video, playlist, or channel links — or Spotify track, album, or
+playlist links. Paste one link per line; every downloaded track gets its own
+folder:
 
 ```text
-Video title [YouTube ID]/
+Track title [source ID]/
 ├── audio.mp3
 ├── thumbnail.jpg
 └── info.txt
 ```
 
-`info.txt` contains the video's title and description. Each input line can be
-a video, playlist, or channel. A direct video URL downloads only that video,
-even when the copied URL also contains a playlist query. Explicit playlist and
-channel URLs download all available videos.
+`info.txt` contains the track's title and description. Each input line can be
+a YouTube video, playlist, or channel link, or a Spotify track, album, or
+playlist link. A direct video URL downloads only that video, even when the
+copied URL also contains a playlist query. Explicit playlist and channel URLs
+download all available videos. Spotify links are resolved to matching YouTube
+audio — see [Spotify links](#spotify-links) below.
 
 ## Interface
 
@@ -50,6 +53,41 @@ Only a filesystem-validated `complete` entry is skipped. A `downloaded` or
 the missing work. If the journal is missing, the app rebuilds it automatically
 from existing folders. Version 1 completion indexes are migrated automatically.
 
+## Spotify links
+
+Spotify's own streams are DRM-protected, so SEEK cannot and does not download
+audio directly from Spotify. Instead it reads public track/playlist metadata
+(title, artist, album, duration) and downloads the closest-matching audio from
+YouTube through the same pipeline used for YouTube links — same per-track
+folder, same resumable completion tracking. Matching uses each track's
+duration to avoid obviously wrong results, but an occasional mismatch is
+possible; check the Activity log if a track sounds wrong.
+
+- **A single track link** (`open.spotify.com/track/...` or a `spotify:track:…`
+  URI) works with no setup, using Spotify's public oEmbed and embed-page data.
+  Because that page's artist metadata is best-effort and undocumented on
+  Spotify's side, match quality for a bare track link can be lower than an
+  album or playlist link.
+- **Album and playlist links** (`open.spotify.com/album/...` or
+  `.../playlist/...`) need the official Spotify Web API to list every track,
+  which requires a free Client ID and Client Secret:
+  1. Sign in at the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+     and create an app (any name/description; any placeholder redirect URI,
+     e.g. `http://127.0.0.1:9090/callback`, works since SEEK never logs a user
+     in — it only reads public catalog data).
+  2. Copy the app's Client ID and Client Secret.
+  3. In SEEK, open **File → Spotify settings…** and paste them in, or set the
+     `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` environment variables
+     instead.
+
+  Credentials are saved locally in `~/.config/seek/spotify.json` on
+  Linux/macOS or `%APPDATA%\SEEK\spotify.json` on Windows (permissions
+  restricted to your user) — they are never committed to the app or sent
+  anywhere besides Spotify's own API.
+
+Local-only tracks in a playlist (ones without a real Spotify catalog entry)
+are skipped, since there is nothing to match on YouTube.
+
 ## Requirements
 
 - Python 3.10 or newer
@@ -57,6 +95,8 @@ from existing folders. Version 1 completion indexes are migrated automatically.
 - A supported JavaScript runtime. `requirements.txt` installs
   [Deno](https://deno.com/) 2.3+ automatically. Node.js 22+, Bun 1.2.11+,
   QuickJS 2023-12-09+, and current QuickJS-ng releases are also supported.
+- (Optional) A free Spotify Client ID/Secret to download Spotify albums or
+  playlists — see [Spotify links](#spotify-links).
 
 `yt-dlp`, Deno, and the Python dependencies are installed by
 `requirements.txt`. FFmpeg means the actual command-line programs, not the
@@ -131,5 +171,9 @@ python3 -m venv .app-venv
   ```text
   python -m pip install -U --pre "yt-dlp[default]"
   ```
+- Spotify's key-free, single-track path scrapes a public but undocumented
+  page, so it can break if Spotify changes that page; the album/playlist path
+  (official Web API) is the more stable option.
 
-Download only content that you own or have permission to use.
+Download only content that you own or have permission to use, and in
+accordance with YouTube's and Spotify's terms of service.
