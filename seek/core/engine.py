@@ -113,10 +113,19 @@ def build_ydl_options(
         ],
     }
 
+    if config.bandwidth_limit != "Unlimited":
+        try:
+            val = float(config.bandwidth_limit.split()[0])
+            options["ratelimit"] = val * 1024 * 1024
+        except Exception:
+            pass
+
     if javascript_runtimes:
         options["js_runtimes"] = javascript_runtimes
 
     return options
+
+_SPOTIFY_TO_YOUTUBE_CACHE: dict[str, str] = {}
 
 _DURATION_TOLERANCE_MIN_S = 5.0
 
@@ -163,6 +172,9 @@ def search_youtube_for_track(
 ) -> str | None:
     """Return the URL of the best available YouTube match for a Spotify track."""
 
+    if track.id in _SPOTIFY_TO_YOUTUBE_CACHE:
+        return _SPOTIFY_TO_YOUTUBE_CACHE[track.id]
+
     import yt_dlp
 
     options: dict[str, Any] = {
@@ -187,8 +199,12 @@ def search_youtube_for_track(
 
     video_id = best.get("id")
     if video_id:
-        return f"https://www.youtube.com/watch?v={video_id}"
-    return best.get("url")
+        url = f"https://www.youtube.com/watch?v={video_id}"
+    else:
+        url = best.get("url")
+    if url and track.id:
+        _SPOTIFY_TO_YOUTUBE_CACHE[track.id] = url
+    return url
 
 def _progress_event(data: dict[str, Any]) -> DownloadEvent:
     info = data.get("info_dict") or {}
@@ -582,49 +598,37 @@ def expand_input_urls(
                 "matching each to YouTube…",
             )
         )
-        for index, track in enumerate(tracks, start=1):
+        def process_track(index: int, track: spotify.SpotifyTrack) -> str | None:
             if cancel_event.is_set():
-                raise UserCancelledError("Download cancelled.")
-
+                return None
+                
             prefix = f"[{index}/{len(tracks)}]"
-            callback(
-                DownloadEvent(
-                    "processing",
-                    f'{prefix} Matching "{track.display_name}" on YouTube…',
-                )
-            )
+            callback(DownloadEvent("processing", f'{prefix} Matching "{track.display_name}" on YouTube…'))
             try:
-                match = search_youtube_for_track(
-                    track,
-                    javascript_runtimes=javascript_runtimes,
-                )
+                match = search_youtube_for_track(track, javascript_runtimes=javascript_runtimes)
             except Exception as exc:
-                callback(
-                    DownloadEvent(
-                        "warning",
-                        f'{prefix} Could not search YouTube for '
-                        f'"{track.display_name}": {exc}',
-                    )
-                )
-                continue
+                callback(DownloadEvent("warning", f'{prefix} Could not search YouTube for "{track.display_name}": {exc}'))
+                return None
 
             if match is None:
-                callback(
-                    DownloadEvent(
-                        "warning",
-                        f'{prefix} No YouTube match found for '
-                        f'"{track.display_name}"',
-                    )
-                )
-                continue
+                callback(DownloadEvent("warning", f'{prefix} No YouTube match found for "{track.display_name}"'))
+                return None
 
-            callback(
-                DownloadEvent(
-                    "log",
-                    f'{prefix} Matched "{track.display_name}" to {match}',
-                )
-            )
-            add(match)
+            callback(DownloadEvent("log", f'{prefix} Matched "{track.display_name}" to {match}'))
+            return match
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = []
+            for index, track in enumerate(tracks, start=1):
+                futures.append(executor.submit(process_track, index, track))
+            
+            for future in concurrent.futures.as_completed(futures):
+                if cancel_event.is_set():
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise UserCancelledError("Download cancelled.")
+                match = future.result()
+                if match:
+                    add(match)
 
     return resolved
 

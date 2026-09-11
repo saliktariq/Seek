@@ -1193,7 +1193,7 @@ class YouTubeAudioApp:
             
         dialog = tk.Toplevel(self.root)
         dialog.title("Settings")
-        dialog.geometry("300x150")
+        dialog.geometry("300x200")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -1208,8 +1208,18 @@ class YouTubeAudioApp:
         dropdown = ttk.Combobox(main_frame, textvariable=format_var, values=formats, state="readonly")
         dropdown.pack(fill="x", pady=(5, 15))
         
+        tk.Label(main_frame, text="Bandwidth Limit:", background=COLORS["surface"], foreground=COLORS["text"]).pack(anchor="w")
+        bw_var = tk.StringVar(value=self.config.bandwidth_limit)
+        bw_formats = ["Unlimited", "1 MB/s", "5 MB/s", "10 MB/s", "25 MB/s"]
+        bw_dropdown = ttk.Combobox(main_frame, textvariable=bw_var, values=bw_formats, state="readonly")
+        bw_dropdown.pack(fill="x", pady=(5, 15))
+        
         def save():
-            self.config = DownloadConfig(audio_format=format_var.get(), audio_quality="192")
+            self.config = DownloadConfig(
+                audio_format=format_var.get(),
+                audio_quality="192",
+                bandwidth_limit=bw_var.get()
+            )
             dialog.destroy()
             
         ttk.Button(main_frame, text="Save", command=save, style="Primary.TButton").pack(side="right")

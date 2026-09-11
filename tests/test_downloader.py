@@ -1170,7 +1170,7 @@ class SpotifyBridgeTests(unittest.TestCase):
         fake_yt_dlp.YoutubeDL = FakeYoutubeDL
 
         track = spotify.SpotifyTrack(
-            id="abc", title="Song", artists=(), album="", duration_ms=None
+            id="def", title="Song", artists=(), album="", duration_ms=None
         )
         with mock.patch.dict(sys.modules, {"yt_dlp": fake_yt_dlp}):
             match = engine.search_youtube_for_track(track)
