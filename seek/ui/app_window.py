@@ -56,6 +56,24 @@ class YouTubeAudioApp:
     """Small, responsive desktop UI around the downloader service."""
 
     def __init__(self, root: tk.Tk) -> None:
+        # Auto theme
+        try:
+            if darkdetect.theme() == 'Light':
+                global COLORS
+                # Very basic light theme
+                COLORS = {
+                    "bg": "#f3f4f6",
+                    "surface": "#ffffff",
+                    "primary": "#10b981",
+                    "primary_hover": "#059669",
+                    "text": "#1f2937",
+                    "text_dim": "#6b7280",
+                    "border": "#e5e7eb",
+                    "error": "#ef4444",
+                    "success": "#10b981",
+                }
+        except Exception:
+            pass
         self.root = root
         self.root.title(WINDOW_TITLE)
         screen_width = self.root.winfo_screenwidth()
@@ -103,6 +121,7 @@ class YouTubeAudioApp:
 
         self.events: queue.Queue[DownloadEvent] = queue.Queue()
         self.config = DownloadConfig()
+        self._load_state()
         self.cancel_event = threading.Event()
         self.worker: threading.Thread | None = None
         self.running = False
@@ -266,6 +285,15 @@ class YouTubeAudioApp:
         self.file_menu.add_command(
             label="Open destination",
             command=self._open_output,
+        )
+        self.file_menu.add_separator()
+        self.file_menu.add_command(
+            label="Import links…",
+            command=self._import_links,
+        )
+        self.file_menu.add_command(
+            label="Export links…",
+            command=self._export_links,
         )
         self.file_menu.add_separator()
         self.file_menu.add_command(
@@ -1185,7 +1213,56 @@ class YouTubeAudioApp:
         )
         if selected:
             self.output_var.set(selected)
+            recent = self.config.recent_destinations
+            if selected in recent:
+                recent.remove(selected)
+            recent.insert(0, selected)
+            recent = recent[:5]
+            self.config = DownloadConfig(
+                audio_format=self.config.audio_format,
+                audio_quality=self.config.audio_quality,
+                bandwidth_limit=self.config.bandwidth_limit,
+                recent_destinations=recent,
+                geometry=self.config.geometry
+            )
+            self.output_combo["values"] = recent
 
+
+    def _import_links(self) -> None:
+        file_path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Import Links",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+        )
+        if file_path:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        current = self.url_input.get("1.0", "end-1c").strip()
+                        if current:
+                            current += "\n"
+                        self.url_input.delete("1.0", "end")
+                        self.url_input.insert("1.0", current + content)
+                        self._on_links_modified()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to import links:\n{e}")
+
+    def _export_links(self) -> None:
+        file_path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Export Links",
+            defaultextension=".txt",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+        )
+        if file_path:
+            try:
+                content = self.url_input.get("1.0", "end-1c").strip()
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                messagebox.showinfo("Success", "Links exported successfully!")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to export links:\n{e}")
 
     def _open_general_settings(self) -> None:
         if self.running:
@@ -1737,6 +1814,46 @@ class YouTubeAudioApp:
                 f"Could not open the output folder:\n{exc}",
             )
 
+    def _save_state(self) -> None:
+        try:
+            import json
+            from pathlib import Path
+            config_dir = Path.home() / ".config" / "seek"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            state = {
+                "audio_format": self.config.audio_format,
+                "audio_quality": self.config.audio_quality,
+                "bandwidth_limit": self.config.bandwidth_limit,
+                "recent_destinations": self.config.recent_destinations,
+                "geometry": self.root.geometry()
+            }
+            with open(config_dir / "config.json", "w") as f:
+                json.dump(state, f)
+        except Exception:
+            pass
+
+    def _load_state(self) -> None:
+        try:
+            import json
+            from pathlib import Path
+            config_file = Path.home() / ".config" / "seek" / "config.json"
+            if config_file.exists():
+                with open(config_file, "r") as f:
+                    state = json.load(f)
+                self.config = DownloadConfig(
+                    audio_format=state.get("audio_format", "mp3"),
+                    audio_quality=state.get("audio_quality", "192"),
+                    bandwidth_limit=state.get("bandwidth_limit", "Unlimited"),
+                    recent_destinations=state.get("recent_destinations", []),
+                    geometry=state.get("geometry", "")
+                )
+                if self.config.geometry:
+                    self.root.geometry(self.config.geometry)
+                if self.config.recent_destinations:
+                    self.output_var.set(self.config.recent_destinations[0])
+        except Exception:
+            pass
+
     def _on_close(self) -> None:
         if not self.running:
             self._stop_animation()
@@ -1748,6 +1865,7 @@ class YouTubeAudioApp:
             "A download is active. Cancel it and close when it stops?",
         )
         if should_close:
+            self._save_state()
             self.close_requested = True
             self._cancel_download()
 
@@ -1763,7 +1881,7 @@ def main() -> None:
                 ctypes.windll.user32.SetProcessDPIAware()
             except (AttributeError, OSError):
                 pass
-    root = tk.Tk()
+    root = TkinterDnD.Tk()
     YouTubeAudioApp(root)
     root.mainloop()
 
