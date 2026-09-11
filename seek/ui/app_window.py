@@ -11,17 +11,19 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from downloader import (
+from seek.core.engine import (
     DownloadEvent,
     DownloadFailedError,
     MissingDependencyError,
     UserCancelledError,
     download_urls,
+)
+from seek.models.links import (
     is_youtube_url,
     normalize_youtube_url,
     parse_url_entries,
 )
-import spotify
+import seek.core.spotify as spotify
 
 
 APP_TITLE = "SEEK"

@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 import urllib.error
 
-import spotify
+import seek.core.spotify as spotify
 
 
 def _fake_response(payload: dict) -> "_FakeResponse":

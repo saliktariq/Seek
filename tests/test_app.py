@@ -6,8 +6,8 @@ import threading
 import unittest
 from unittest import mock
 
-import app
-from downloader import DownloadResult
+from seek.ui import app_window as app
+from seek.core.engine import DownloadResult
 
 
 class FakeVar:

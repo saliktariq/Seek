@@ -9,25 +9,23 @@ import types
 import unittest
 from unittest import mock
 
-import downloader
-from downloader import (
-    DependencyReport,
-    DownloadEvent,
-    DownloadFailedError,
-    _duration_tolerance,
-    _select_best_match,
-    build_ydl_options,
-    download_url,
-    download_urls,
-    format_bytes,
-    is_single_video_url,
-    is_youtube_url,
-    normalize_youtube_url,
-    parse_url_entries,
-    parse_url_list,
-    write_info_file,
+import seek.core.engine as engine
+import seek.core.journal as journal
+import seek.models.links as links
+import seek.utils.system as system
+import seek.core.spotify as spotify
+
+from seek.utils.system import DependencyReport, format_bytes
+from seek.core.engine import (
+    DownloadEvent, DownloadFailedError, UserCancelledError, DownloadResult,
+    _duration_tolerance, _select_best_match,
+    build_ydl_options, download_url, download_urls, write_info_file
 )
-import spotify
+from seek.models.links import (
+    is_single_video_url, is_youtube_url, normalize_youtube_url,
+    parse_url_entries, parse_url_list
+)
+from seek.core.journal import CompletionIndex
 
 
 def _no_op(*_args, **_kwargs):
@@ -332,12 +330,12 @@ class OutputTests(unittest.TestCase):
                     },
                 ),
                 mock.patch.object(
-                    downloader,
+                    engine,
                     "check_dependencies",
                     return_value=DependencyReport((), "Node.js"),
                 ),
                 mock.patch.object(
-                    downloader,
+                    engine,
                     "detect_javascript_runtimes",
                     return_value={"node": {"path": "node"}},
                 ),
@@ -432,7 +430,7 @@ class CompletionIndexTests(unittest.TestCase):
             output_root = Path(temporary)
             video_dir = output_root / "Phase test [phase123]"
             video_dir.mkdir()
-            index = downloader.CompletionIndex(output_root)
+            index = CompletionIndex(output_root)
             source_path = video_dir / "audio.webm"
             source_path.write_bytes(b"source audio")
 
@@ -498,7 +496,7 @@ class CompletionIndexTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            index = downloader.CompletionIndex(output_root)
+            index = CompletionIndex(output_root)
             state = json.loads(state_path.read_text(encoding="utf-8"))
 
             self.assertEqual(state["version"], 2)
@@ -524,7 +522,7 @@ class CompletionIndexTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            index = downloader.CompletionIndex(output_root)
+            index = CompletionIndex(output_root)
 
             self.assertEqual(
                 index.find_complete("done123"),
@@ -539,7 +537,7 @@ class CompletionIndexTests(unittest.TestCase):
             )
 
             (complete / "thumbnail.jpg").write_bytes(b"")
-            reloaded = downloader.CompletionIndex(output_root)
+            reloaded = CompletionIndex(output_root)
             self.assertIsNone(reloaded.find_complete("done123"))
             self.assertEqual(
                 reloaded.find_status("done123"),
@@ -562,8 +560,8 @@ class CompletionIndexTests(unittest.TestCase):
             second_root = Path(second_temporary)
             _write_complete_output(first_root / "Complete [same123]")
 
-            first_index = downloader.CompletionIndex(first_root)
-            second_index = downloader.CompletionIndex(second_root)
+            first_index = CompletionIndex(first_root)
+            second_index = CompletionIndex(second_root)
 
             self.assertIsNotNone(first_index.find_complete("same123"))
             self.assertIsNone(second_index.find_complete("same123"))
@@ -674,12 +672,12 @@ class CompletionIndexTests(unittest.TestCase):
                     },
                 ),
                 mock.patch.object(
-                    downloader,
+                    engine,
                     "check_dependencies",
                     return_value=DependencyReport((), "Node.js"),
                 ),
                 mock.patch.object(
-                    downloader,
+                    engine,
                     "detect_javascript_runtimes",
                     return_value={"node": {"path": "node"}},
                 ),
@@ -713,12 +711,11 @@ class RuntimeDetectionTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                downloader,
-                "_find_executable",
+                system, "_find_executable",
                 side_effect=find_executable,
             ),
             mock.patch.object(
-                downloader.subprocess,
+                system.subprocess,
                 "run",
                 return_value=types.SimpleNamespace(
                     stdout="v20.20.2\n",
@@ -726,7 +723,7 @@ class RuntimeDetectionTests(unittest.TestCase):
                 ),
             ),
         ):
-            self.assertEqual(downloader.detect_javascript_runtimes(), {})
+            self.assertEqual(system.detect_javascript_runtimes(), {})
 
     def test_supported_node_version_is_enabled(self) -> None:
         def find_executable(name):
@@ -734,12 +731,11 @@ class RuntimeDetectionTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                downloader,
-                "_find_executable",
+                system, "_find_executable",
                 side_effect=find_executable,
             ),
             mock.patch.object(
-                downloader.subprocess,
+                system.subprocess,
                 "run",
                 return_value=types.SimpleNamespace(
                     stdout="v22.1.0\n",
@@ -748,7 +744,7 @@ class RuntimeDetectionTests(unittest.TestCase):
             ),
         ):
             self.assertEqual(
-                downloader.detect_javascript_runtimes(),
+                system.detect_javascript_runtimes(),
                 {"node": {"path": "node.exe"}},
             )
 
@@ -757,24 +753,24 @@ class BatchDownloadTests(unittest.TestCase):
     def test_batch_continues_after_one_input_fails(self) -> None:
         callback_events = []
         results = [
-            downloader.DownloadResult(1, False),
+            DownloadResult(1, False),
             DownloadFailedError("Unavailable"),
-            downloader.DownloadResult(2, True),
+            DownloadResult(2, True),
         ]
 
         with (
             mock.patch.object(
-                downloader,
+                engine,
                 "detect_javascript_runtimes",
                 return_value={},
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "check_dependencies",
                 return_value=DependencyReport((), None),
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "download_url",
                 side_effect=results,
             ) as mocked_download,
@@ -807,19 +803,19 @@ class BatchDownloadTests(unittest.TestCase):
     def test_batch_removes_exact_duplicate_inputs(self) -> None:
         with (
             mock.patch.object(
-                downloader,
+                engine,
                 "detect_javascript_runtimes",
                 return_value={},
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "check_dependencies",
                 return_value=DependencyReport((), None),
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "download_url",
-                return_value=downloader.DownloadResult(1, False),
+                return_value=DownloadResult(1, False),
             ) as mocked_download,
         ):
             result = download_urls(
@@ -840,19 +836,19 @@ class BatchDownloadTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as temporary,
             mock.patch.object(
-                downloader,
+                engine,
                 "detect_javascript_runtimes",
                 return_value={},
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "check_dependencies",
                 return_value=DependencyReport((), None),
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "download_url",
-                return_value=downloader.DownloadResult(0, False, 140),
+                return_value=DownloadResult(0, False, 140),
             ),
         ):
             result = download_urls(
@@ -896,7 +892,7 @@ class BatchDownloadTests(unittest.TestCase):
                         path=first_path,
                     )
                 )
-                return downloader.DownloadResult(1, False)
+                return DownloadResult(1, False)
             callback(
                 DownloadEvent(
                     "video_complete",
@@ -904,21 +900,21 @@ class BatchDownloadTests(unittest.TestCase):
                     path=second_path,
                 )
             )
-            return downloader.DownloadResult(1, False)
+            return DownloadResult(1, False)
 
         with (
             mock.patch.object(
-                downloader,
+                engine,
                 "detect_javascript_runtimes",
                 return_value={},
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "check_dependencies",
                 return_value=DependencyReport((), None),
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "download_url",
                 side_effect=fake_download,
             ),
@@ -947,18 +943,18 @@ class BatchDownloadTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                downloader,
+                engine,
                 "detect_javascript_runtimes",
                 return_value={},
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "check_dependencies",
                 return_value=DependencyReport((), None),
             ),
-            mock.patch.object(downloader, "download_url") as mocked_download,
+            mock.patch.object(engine, "download_url") as mocked_download,
         ):
-            with self.assertRaises(downloader.UserCancelledError):
+            with self.assertRaises(UserCancelledError):
                 download_urls(
                     ["https://youtu.be/one"],
                     Path("downloads"),
@@ -972,7 +968,7 @@ class BatchDownloadTests(unittest.TestCase):
 class SpotifyBridgeTests(unittest.TestCase):
     def test_expand_input_urls_passes_through_youtube_links(self) -> None:
         events = []
-        result = downloader.expand_input_urls(
+        result = engine.expand_input_urls(
             ["https://youtu.be/abc123"],
             events.append,
             threading.Event(),
@@ -982,7 +978,7 @@ class SpotifyBridgeTests(unittest.TestCase):
 
     def test_expand_input_urls_reports_unsupported_links(self) -> None:
         events = []
-        result = downloader.expand_input_urls(
+        result = engine.expand_input_urls(
             ["https://example.com/not-supported"],
             events.append,
             threading.Event(),
@@ -1007,12 +1003,12 @@ class SpotifyBridgeTests(unittest.TestCase):
                 return_value=track,
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "search_youtube_for_track",
                 return_value="https://www.youtube.com/watch?v=match123",
             ),
         ):
-            result = downloader.expand_input_urls(
+            result = engine.expand_input_urls(
                 ["https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"],
                 events.append,
                 threading.Event(),
@@ -1022,7 +1018,7 @@ class SpotifyBridgeTests(unittest.TestCase):
     def test_expand_input_urls_requires_credentials_for_playlists(self) -> None:
         events = []
         with mock.patch.object(spotify, "load_credentials", return_value=None):
-            result = downloader.expand_input_urls(
+            result = engine.expand_input_urls(
                 ["https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"],
                 events.append,
                 threading.Event(),
@@ -1062,7 +1058,7 @@ class SpotifyBridgeTests(unittest.TestCase):
                 spotify.SpotifyClient, "resolve", return_value=tracks
             ),
             mock.patch.object(
-                downloader,
+                engine,
                 "search_youtube_for_track",
                 side_effect=[
                     "https://www.youtube.com/watch?v=one",
@@ -1070,7 +1066,7 @@ class SpotifyBridgeTests(unittest.TestCase):
                 ],
             ),
         ):
-            result = downloader.expand_input_urls(
+            result = engine.expand_input_urls(
                 ["https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"],
                 events.append,
                 threading.Event(),
@@ -1098,10 +1094,10 @@ class SpotifyBridgeTests(unittest.TestCase):
                 spotify, "fetch_track_without_credentials", return_value=track
             ),
             mock.patch.object(
-                downloader, "search_youtube_for_track", return_value=None
+                engine, "search_youtube_for_track", return_value=None
             ),
         ):
-            result = downloader.expand_input_urls(
+            result = engine.expand_input_urls(
                 ["https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"],
                 events.append,
                 threading.Event(),
@@ -1112,8 +1108,8 @@ class SpotifyBridgeTests(unittest.TestCase):
     def test_expand_input_urls_stops_when_already_cancelled(self) -> None:
         cancel_event = threading.Event()
         cancel_event.set()
-        with self.assertRaises(downloader.UserCancelledError):
-            downloader.expand_input_urls(
+        with self.assertRaises(UserCancelledError):
+            engine.expand_input_urls(
                 ["https://youtu.be/abc123"],
                 lambda _event: None,
                 cancel_event,
@@ -1151,7 +1147,7 @@ class SpotifyBridgeTests(unittest.TestCase):
             duration_ms=120000,
         )
         with mock.patch.dict(sys.modules, {"yt_dlp": fake_yt_dlp}):
-            match = downloader.search_youtube_for_track(track)
+            match = engine.search_youtube_for_track(track)
 
         self.assertEqual(match, "https://www.youtube.com/watch?v=close")
 
@@ -1177,7 +1173,7 @@ class SpotifyBridgeTests(unittest.TestCase):
             id="abc", title="Song", artists=(), album="", duration_ms=None
         )
         with mock.patch.dict(sys.modules, {"yt_dlp": fake_yt_dlp}):
-            match = downloader.search_youtube_for_track(track)
+            match = engine.search_youtube_for_track(track)
 
         self.assertEqual(match, "https://www.youtube.com/watch?v=first")
 
@@ -1321,7 +1317,7 @@ class FailureTrackingTests(unittest.TestCase):
             video_dir.mkdir()
             (video_dir / "audio.webm").write_bytes(b"source")
 
-            index = downloader.CompletionIndex(output_root)
+            index = CompletionIndex(output_root)
             index.mark_downloaded("fail1", video_dir / "audio.webm")
 
             self.assertEqual(index.failure_count("fail1"), 0)
@@ -1330,7 +1326,7 @@ class FailureTrackingTests(unittest.TestCase):
             self.assertEqual(index.failure_count("fail1"), 2)
 
             # Verify persistence: failures survive reload
-            reloaded = downloader.CompletionIndex(output_root)
+            reloaded = CompletionIndex(output_root)
             self.assertEqual(reloaded.failure_count("fail1"), 2)
 
     def test_failures_saved_in_journal_json(self) -> None:
@@ -1340,7 +1336,7 @@ class FailureTrackingTests(unittest.TestCase):
             video_dir.mkdir()
             (video_dir / "audio.webm").write_bytes(b"source")
 
-            index = downloader.CompletionIndex(output_root)
+            index = CompletionIndex(output_root)
             index.mark_downloaded("fail2", video_dir / "audio.webm")
             index.record_failure("fail2")
 
@@ -1357,7 +1353,7 @@ class FailureTrackingTests(unittest.TestCase):
             video_dir = output_root / "Test [nofail]"
             _write_complete_output(video_dir)
 
-            index = downloader.CompletionIndex(output_root)
+            index = CompletionIndex(output_root)
             state = json.loads(
                 index.path.read_text(encoding="utf-8")
             )
@@ -1378,14 +1374,14 @@ class JournalTmpCleanupTests(unittest.TestCase):
             stale_tmp.write_text('{"stale": true}', encoding="utf-8")
             self.assertTrue(stale_tmp.exists())
 
-            _index = downloader.CompletionIndex(output_root)
+            _index = CompletionIndex(output_root)
             self.assertFalse(stale_tmp.exists())
 
     def test_missing_tmp_file_is_harmless(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output_root = Path(temporary)
             # No .tmp file exists — should not raise
-            _index = downloader.CompletionIndex(output_root)
+            _index = CompletionIndex(output_root)
             stale_tmp = (
                 output_root / ".youtube-audio-completed.json.tmp"
             )
