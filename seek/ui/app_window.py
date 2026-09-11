@@ -102,6 +102,7 @@ class YouTubeAudioApp:
         )
 
         self.events: queue.Queue[DownloadEvent] = queue.Queue()
+        self.config = DownloadConfig()
         self.cancel_event = threading.Event()
         self.worker: threading.Thread | None = None
         self.running = False
@@ -267,6 +268,10 @@ class YouTubeAudioApp:
             command=self._open_output,
         )
         self.file_menu.add_separator()
+        self.file_menu.add_command(
+            label="General settings…",
+            command=self._open_general_settings,
+        )
         self.file_menu.add_command(
             label="Spotify settings…",
             command=self._open_spotify_settings,
@@ -1181,6 +1186,35 @@ class YouTubeAudioApp:
         if selected:
             self.output_var.set(selected)
 
+
+    def _open_general_settings(self) -> None:
+        if self.running:
+            return
+            
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Settings")
+        dialog.geometry("300x150")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        main_frame = tk.Frame(dialog, padx=20, pady=20, background=COLORS["surface"])
+        main_frame.pack(fill="both", expand=True)
+        
+        tk.Label(main_frame, text="Audio Format:", background=COLORS["surface"], foreground=COLORS["text"]).pack(anchor="w")
+        
+        format_var = tk.StringVar(value=self.config.audio_format)
+        formats = ["mp3", "m4a", "flac", "wav"]
+        dropdown = ttk.Combobox(main_frame, textvariable=format_var, values=formats, state="readonly")
+        dropdown.pack(fill="x", pady=(5, 15))
+        
+        def save():
+            self.config = DownloadConfig(audio_format=format_var.get(), audio_quality="192")
+            dialog.destroy()
+            
+        ttk.Button(main_frame, text="Save", command=save, style="Primary.TButton").pack(side="right")
+        ttk.Button(main_frame, text="Cancel", command=dialog.destroy).pack(side="right", padx=10)
+
     def _open_spotify_settings(self) -> None:
         if self.running:
             return
@@ -1560,6 +1594,11 @@ class YouTubeAudioApp:
         self._set_running(False)
         self._show_progress(100.0 if success else 0.0)
         self.status_var.set(message)
+        if success:
+            try:
+                notification.notify(title="Download Complete", message=message, app_name="Seek")
+            except Exception:
+                pass
         self._append_log(message)
         if error or warning:
             self.retry_button.grid()

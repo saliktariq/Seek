@@ -15,6 +15,7 @@ import re
 
 import seek.core.spotify as spotify
 from seek.core.journal import CompletionIndex, _REQUIRED_OUTPUT_FILENAMES
+from seek.models.config import DownloadConfig
 from seek.models.links import is_youtube_url, normalize_youtube_url, is_single_video_url
 from seek.utils.system import check_dependencies, detect_javascript_runtimes, DependencyReport
 
@@ -60,8 +61,12 @@ def build_ydl_options(
     postprocessor_hook: Callable[[dict[str, Any]], None],
     match_filter: Callable[..., str | None],
     javascript_runtimes: dict[str, dict[str, str]] | None = None,
+    config: DownloadConfig | None = None,
 ) -> dict[str, Any]:
     """Build the yt-dlp option dictionary used by the application."""
+
+    if config is None:
+        config = DownloadConfig()
 
     folder = "%(title).100S [%(id)s]"
     options: dict[str, Any] = {
@@ -71,7 +76,7 @@ def build_ydl_options(
             "thumbnail": f"{folder}/thumbnail.%(ext)s",
         },
         "format": "bestaudio/best",
-        "final_ext": "mp3",
+        "final_ext": config.audio_format,
         "writethumbnail": True,
         "allow_playlist_files": False,
         "windowsfilenames": True,
@@ -102,8 +107,8 @@ def build_ydl_options(
             },
             {
                 "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
+                "preferredcodec": config.audio_format,
+                "preferredquality": config.audio_quality,
             },
         ],
     }
@@ -185,6 +190,25 @@ def search_youtube_for_track(
         return f"https://www.youtube.com/watch?v={video_id}"
     return best.get("url")
 
+def _progress_event(data: dict[str, Any]) -> DownloadEvent:
+    info = data.get("info_dict") or {}
+    title = str(info.get("title") or "video")
+
+    percent_str = _ANSI_ESCAPE.sub("", str(data.get("_percent_str") or "0%")).strip()
+    try:
+        percent = float(percent_str.strip("%"))
+    except ValueError:
+        percent = 0.0
+
+    speed_str = _ANSI_ESCAPE.sub("", str(data.get("_speed_str") or "")).strip()
+    eta_str = _ANSI_ESCAPE.sub("", str(data.get("_eta_str") or "")).strip()
+
+    message = f'Downloading "{title}"…'
+    if speed_str and eta_str:
+        message += f" ({speed_str}, ETA {eta_str})"
+
+    return DownloadEvent("progress", message, percent)
+
 def write_info_file(info: dict[str, Any], video_dir: Path) -> Path:
     """Atomically write the title and description for one downloaded video."""
 
@@ -221,6 +245,7 @@ def download_url(
     callback: EventCallback,
     cancel_event: threading.Event,
     *,
+    config: DownloadConfig | None = None,
     _dependency_report: DependencyReport | None = None,
     _javascript_runtimes: dict[str, dict[str, str]] | None = None,
     _announce_environment: bool = True,
@@ -371,6 +396,7 @@ def download_url(
         postprocessor_hook=postprocessor_hook,
         match_filter=match_filter,
         javascript_runtimes=javascript_runtimes,
+        config=config,
     )
 
     class WriteInfoPostProcessor(yt_dlp.postprocessor.PostProcessor):
@@ -646,6 +672,7 @@ def download_urls(
     output_dir: Path,
     callback: EventCallback,
     cancel_event: threading.Event,
+    config: DownloadConfig | None = None,
 ) -> DownloadResult:
     """Download multiple independent input URLs, continuing after item errors."""
 
@@ -734,6 +761,7 @@ def download_urls(
                 output_dir,
                 forward_event,
                 cancel_event,
+                config=config,
                 _dependency_report=dependency_report,
                 _javascript_runtimes=javascript_runtimes,
                 _announce_environment=index == 1,
