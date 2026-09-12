@@ -80,7 +80,6 @@ class YouTubeAudioApp:
         # Auto theme
         try:
             if darkdetect.theme() == "Light":
-                global COLORS
                 # Very basic light theme
                 COLORS.update(
                     {
