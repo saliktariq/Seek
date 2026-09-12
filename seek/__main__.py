@@ -1,8 +1,7 @@
 import tkinter as tk
 import sys
 import logging
-from seek.ui.app_window import YouTubeAudioApp
-from seek.ui.theme import COLORS  # type: ignore
+from seek.ui.app_window import YouTubeAudioApp, COLORS
 
 
 def main() -> None:
@@ -11,11 +10,15 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    root = tk.Tk()
+    try:
+        from tkinterdnd2 import TkinterDnD  # type: ignore
+        root = TkinterDnD.Tk()
+    except Exception:
+        root = tk.Tk()
     root.title("SEEK")
     root.geometry("900x700")
     root.minsize(800, 600)
-    root.configure(background=COLORS["bg"])
+    root.configure(background=COLORS["app_bg"])
 
     app = YouTubeAudioApp(root)
 
