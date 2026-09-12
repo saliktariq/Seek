@@ -14,4 +14,4 @@ fi
 
 export PATH="$venv_bin:$PATH"
 cd -- "$app_dir"
-exec "$python_path" "$app_dir/app.py"
+exec "$python_path" -m seek

@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $appDirectory = $PSScriptRoot
 $venvScripts = Join-Path $appDirectory ".app-venv\Scripts"
-$appPath = Join-Path $appDirectory "app.py"
+$appPath = Join-Path $appDirectory "seek"
 $pathEntries = [System.Collections.Generic.List[string]]::new()
 
 function Add-PathEntries {
@@ -56,14 +56,14 @@ $pythonPath = Join-Path $venvScripts $pythonName
 if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
     throw "SEEK is not installed. Run install-windows.ps1 first."
 }
-if (-not (Test-Path -LiteralPath $appPath -PathType Leaf)) {
-    throw "SEEK could not find app.py in $appDirectory."
+if (-not (Test-Path -LiteralPath $appPath)) {
+    throw "SEEK could not find the seek package in $appDirectory."
 }
 
 if ($Wait) {
     Push-Location $appDirectory
     try {
-        & $pythonPath $appPath
+        & $pythonPath -m seek
         exit $LASTEXITCODE
     }
     finally {
@@ -74,5 +74,5 @@ if ($Wait) {
 $quotedAppPath = '"{0}"' -f $appPath
 Start-Process `
     -FilePath $pythonPath `
-    -ArgumentList $quotedAppPath `
+    -ArgumentList "-m seek" `
     -WorkingDirectory $appDirectory
