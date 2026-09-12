@@ -25,6 +25,14 @@ SEEK presents the queue, destination, progress, and activity log in one
 dashboard. The live cards show how many unique links are queued, how many new
 videos were saved, and how many completed videos were skipped.
 
+**New & Improved Features:**
+- **Drag & Drop:** Simply drag URLs from your browser directly into the link box.
+- **Auto-Theming:** Automatically matches your operating system's Dark or Light mode.
+- **Recent Destinations:** Remembers your last used download folders and window state across sessions.
+- **Link Management:** Import and export your queue to text files from the File menu.
+- **Bandwidth Controls:** Limit your download speed via the Options menu.
+- **Desktop Notifications:** Get alerted the moment your batch download finishes.
+
 The File, Edit, Download, View, and Help menus provide access to the main
 actions. Useful keyboard shortcuts include:
 
@@ -50,7 +58,7 @@ each video it is updated atomically through three durable phases:
 
 Only a filesystem-validated `complete` entry is skipped. A `downloaded` or
 `converted` entry is resumed so yt-dlp can reuse the existing media and finish
-the missing work. If the journal is missing, the app rebuilds it automatically
+the missing work. If a file fails FFmpeg conversion 3 times, it is marked as skipped to prevent infinite retry loops. If the journal is missing, the app rebuilds it automatically
 from existing folders. Version 1 completion indexes are migrated automatically.
 
 ## Spotify links
@@ -59,7 +67,7 @@ Spotify's own streams are DRM-protected, so SEEK cannot and does not download
 audio directly from Spotify. Instead it reads public track/playlist metadata
 (title, artist, album, duration) and downloads the closest-matching audio from
 YouTube through the same pipeline used for YouTube links — same per-track
-folder, same resumable completion tracking. Matching uses each track's
+folder, same resumable completion tracking. SEEK uses multi-threaded concurrent resolution and aggressive caching to map massive Spotify playlists to YouTube URLs in seconds. Matching uses each track's
 duration to avoid obviously wrong results, but an occasional mismatch is
 possible; check the Activity log if a track sounds wrong.
 
