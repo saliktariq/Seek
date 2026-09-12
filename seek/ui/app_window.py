@@ -82,17 +82,28 @@ class YouTubeAudioApp:
             if darkdetect.theme() == "Light":
                 global COLORS
                 # Very basic light theme
-                COLORS = {
-                    "bg": "#f3f4f6",
-                    "surface": "#ffffff",
-                    "primary": "#10b981",
-                    "primary_hover": "#059669",
-                    "text": "#1f2937",
-                    "text_dim": "#6b7280",
-                    "border": "#e5e7eb",
-                    "error": "#ef4444",
-                    "success": "#10b981",
-                }
+                COLORS.update(
+                    {
+                        "app_bg": "#f3f4f6",
+                        "surface": "#ffffff",
+                        "surface_alt": "#e5e7eb",
+                        "nav": "#ffffff",
+                        "nav_soft": "#f9fafb",
+                        "hero": "#f3f4f6",
+                        "ink": "#1f2937",
+                        "muted": "#6b7280",
+                        "muted_light": "#9ca3af",
+                        "border": "#e5e7eb",
+                        "primary": "#10b981",
+                        "primary_hover": "#059669",
+                        "cyan": "#06b6d4",
+                        "success": "#10b981",
+                        "warning": "#f59e0b",
+                        "danger": "#ef4444",
+                        "console": "#f9fafb",
+                        "console_text": "#111827",
+                    }
+                )
         except Exception:
             pass
         self.root = root
