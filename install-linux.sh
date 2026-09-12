@@ -154,6 +154,7 @@ install_dir="$(cd -- "$install_dir" && pwd -P)"
 
 if [[ "$source_dir" != "$install_dir" ]]; then
     for file in "${required_source_files[@]}"; do
+        rm -rf -- "$install_dir/$file"
         cp -af -- "$source_dir/$file" "$install_dir/$file"
     done
 fi

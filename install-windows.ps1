@@ -388,9 +388,13 @@ if (
     )
 ) {
     foreach ($file in $requiredSourceFiles) {
+        $target = Join-Path $InstallDir $file
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Force -Recurse
+        }
         Copy-Item `
             -LiteralPath (Join-Path $sourceDirectory $file) `
-            -Destination (Join-Path $InstallDir $file) `
+            -Destination $target `
             -Force -Recurse
     }
 }
