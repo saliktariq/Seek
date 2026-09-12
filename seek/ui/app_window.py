@@ -77,34 +77,7 @@ class YouTubeAudioApp:
     """Small, responsive desktop UI around the downloader service."""
 
     def __init__(self, root: tk.Tk) -> None:
-        # Auto theme
-        try:
-            if darkdetect.theme() == "Light":
-                # Very basic light theme
-                COLORS.update(
-                    {
-                        "app_bg": "#f3f4f6",
-                        "surface": "#ffffff",
-                        "surface_alt": "#e5e7eb",
-                        "nav": "#ffffff",
-                        "nav_soft": "#f9fafb",
-                        "hero": "#f3f4f6",
-                        "ink": "#1f2937",
-                        "muted": "#6b7280",
-                        "muted_light": "#9ca3af",
-                        "border": "#e5e7eb",
-                        "primary": "#10b981",
-                        "primary_hover": "#059669",
-                        "cyan": "#06b6d4",
-                        "success": "#10b981",
-                        "warning": "#f59e0b",
-                        "danger": "#ef4444",
-                        "console": "#f9fafb",
-                        "console_text": "#111827",
-                    }
-                )
-        except Exception:
-            pass
+
         self.root = root
         self.root.title(WINDOW_TITLE)
         screen_width = self.root.winfo_screenwidth()

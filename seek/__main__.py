@@ -12,6 +12,7 @@ def main() -> None:
     )
     try:
         from tkinterdnd2 import TkinterDnD  # type: ignore
+
         root = TkinterDnD.Tk()
     except Exception:
         root = tk.Tk()
