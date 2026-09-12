@@ -40,8 +40,7 @@ $ErrorActionPreference = "Stop"
 
 $sourceDirectory = $PSScriptRoot
 $requiredSourceFiles = @(
-    "app.py",
-    "downloader.py",
+    "seek",
     "requirements.txt",
     "README.md",
     "install-windows.ps1",
@@ -151,7 +150,7 @@ function Find-SuitablePython {
 
             foreach ($folder in $pythonFolders) {
                 $pythonPath = Join-Path $folder.FullName "python.exe"
-                if (Test-Path -LiteralPath $pythonPath -PathType Leaf) {
+                if (Test-Path -LiteralPath $pythonPath ) {
                     [void]$candidates.Add(
                         [pscustomobject]@{
                             FilePath = $pythonPath
@@ -257,7 +256,7 @@ function Find-FfmpegDirectories {
                     $directory = $ffmpeg.DirectoryName
                     $ffprobe = Join-Path $directory "ffprobe.exe"
                     if (
-                        Test-Path -LiteralPath $ffprobe -PathType Leaf
+                        Test-Path -LiteralPath $ffprobe 
                     ) {
                         if (-not $directories.Contains($directory)) {
                             [void]$directories.Add($directory)
@@ -325,7 +324,7 @@ Refresh-ProcessPath
 
 foreach ($file in $requiredSourceFiles) {
     $sourcePath = Join-Path $sourceDirectory $file
-    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $sourcePath )) {
         throw "Required application file is missing: $sourcePath"
     }
 }
@@ -392,7 +391,7 @@ if (
         Copy-Item `
             -LiteralPath (Join-Path $sourceDirectory $file) `
             -Destination (Join-Path $InstallDir $file) `
-            -Force
+            -Force -Recurse
     }
 }
 

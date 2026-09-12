@@ -155,7 +155,7 @@ On Windows:
 ```powershell
 python -m venv .app-venv
 .\.app-venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.app-venv\Scripts\python.exe app.py
+.\.app-venv\Scripts\python.exe -m seek
 ```
 
 On Linux or macOS:
@@ -163,7 +163,7 @@ On Linux or macOS:
 ```bash
 python3 -m venv .app-venv
 ./.app-venv/bin/python -m pip install -r requirements.txt
-./.app-venv/bin/python app.py
+./.app-venv/bin/python -m seek
 ```
 
 ## Notes

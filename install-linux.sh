@@ -116,8 +116,7 @@ done
 [[ -n "$install_dir" ]] || die "The installation directory is empty."
 
 required_source_files=(
-    app.py
-    downloader.py
+    seek
     requirements.txt
     README.md
     install-linux.sh
@@ -125,7 +124,7 @@ required_source_files=(
 )
 
 for file in "${required_source_files[@]}"; do
-    [[ -f "$source_dir/$file" ]] ||
+    [[ -e "$source_dir/$file" ]] ||
         die "Required application file is missing: $source_dir/$file"
 done
 
@@ -155,7 +154,7 @@ install_dir="$(cd -- "$install_dir" && pwd -P)"
 
 if [[ "$source_dir" != "$install_dir" ]]; then
     for file in "${required_source_files[@]}"; do
-        cp -f -- "$source_dir/$file" "$install_dir/$file"
+        cp -af -- "$source_dir/$file" "$install_dir/$file"
     done
 fi
 chmod +x \
