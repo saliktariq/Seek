@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-app_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+app_dir="$(cd -- "$(dirname -- "$(realpath "${BASH_SOURCE[0]}")")" && pwd -P)"
 venv_bin="$app_dir/.app-venv/bin"
 python_path="$venv_bin/python"
 
