@@ -431,7 +431,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "Running the post-install health check"
 $healthCheck = (
-    "from downloader import check_dependencies; " +
+    "from seek.utils.system import check_dependencies; " +
     "r = check_dependencies(); " +
     "assert not r.missing_required, ', '.join(r.missing_required); " +
     "assert r.javascript_runtime, 'No JavaScript runtime found'; " +

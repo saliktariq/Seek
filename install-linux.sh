@@ -182,7 +182,7 @@ step "Installing SEEK's Python dependencies"
 step "Running the post-install health check"
 health_check="$(
     printf '%s' \
-        "from downloader import check_dependencies; " \
+        "from seek.utils.system import check_dependencies; " \
         "r = check_dependencies(); " \
         "assert not r.missing_required, ', '.join(r.missing_required); " \
         "assert r.javascript_runtime, 'No JavaScript runtime found'; " \
